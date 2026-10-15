@@ -328,14 +328,11 @@
 /* 動作確認用：URLに ?today=2026-11-14 などを付けると、その日として表示する */
 var DEBUG_TODAY = '<?= debugToday ?>';
 var STAFF_KEY = '<?= k ?>';
-var VIEW = '<?= v ?>';           // 'live' のとき試合速報モード
-var BASE_URL = '<?= base ?>';    // ウェブアプリのURL（速報画面へのリンク用）
+var VIEW = '<?= v ?>';           // 'live' のとき試合タブの「いま」を開く（以前の試合速報URLの名残）
 var Q = new URLSearchParams(location.search);
 if (DEBUG_TODAY.indexOf('<' + '?') === 0) DEBUG_TODAY = Q.get('today') || '';
 if (STAFF_KEY.indexOf('<' + '?') === 0) STAFF_KEY = Q.get('k') || '';
 if (VIEW.indexOf('<' + '?') === 0) VIEW = Q.get('v') === 'live' ? 'live' : '';
-if (BASE_URL.indexOf('<' + '?') === 0) BASE_URL = '';
-var LIVE = VIEW === 'live';
 var DEBUG_TIME = Q.get('time') || '';
 var IS_GAS = !!(window.google && google.script && google.script.run);
 // GitHub Pages など Google の外に置いた画面は、ウェブアプリ（doPost）にデータを取りに行く。
@@ -343,8 +340,6 @@ var IS_GAS = !!(window.google && google.script && google.script.run);
 var API_URL = 'https://script.google.com/macros/s/AKfycbwvQFkEz05C91-wGnWtZ0-zaMJr4p5geZxdj-1BoqxURZ6d89KgI47XUhD-saZB55wINA/exec';
 var USE_API = !IS_GAS && /^https?:$/.test(location.protocol) && !Q.get('mock');
 var ONLINE = IS_GAS || USE_API; // false のときは preview/seed_data.js の見本データで動く
-if (USE_API && !BASE_URL) BASE_URL = location.origin + location.pathname;
-if (LIVE) document.title = 'ソフトボール大会 試合速報';
 
 var D = null;          // 取得したデータ
 var TAB = 'home';
@@ -363,6 +358,7 @@ var WD = ['日', '月', '火', '水', '木', '金', '土'];
 var CIRCLED = ['', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
 var PRELIM_MIN = 40, SEMI_MIN = 40, FINAL_MIN = 60; // 設定シートの値で上書き（開催要項：予選・準決勝40分、優勝戦・3決1時間）
 var LIVE_GROUND_KEY = 'softball_ground';
+var FIRST_LOAD = true;
 var LIVE_BUSY = 0;     // 記録係の送信中の件数（この間は自動更新しない）
 var ICONS = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
@@ -385,11 +381,28 @@ var RF = {};           // アトラクション記録の入力中の内容 {ア�
 function load(silent) {
   if (!silent) document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
   if (ONLINE) {
-    server(LIVE ? 'getLive' : 'getData', [STAFF_KEY], onData, silent ? function () {} : onError);
+    server('getData', [STAFF_KEY], onData, silent ? function () {} : onError);
   } else {
     mockGetData(onData);
   }
 }
+/** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる */
+function loadLive() {
+  if (ONLINE) server('getLive', [STAFF_KEY], onLive, function () {});
+  else mockGetData(onLive);
+}
+function onLive(d) {
+  if (!D) return;
+  D.matches = d.matches || [];
+  D.finals = d.finals || [];
+  (d.entries || []).forEach(function (e) {
+    var cur = D.entries.filter(function (x) { return x.code === e.code; })[0];
+    if (cur) { cur.name = e.name; cur.rankAdj = e.rankAdj; } else D.entries.push(e);
+  });
+  D.fetchedAt = d.fetchedAt;
+  render();
+}
+function isNow() { return TAB === 'games' && GAME_MODE === 'now'; }
 /** サーバーの関数を呼ぶ。GAS の画面なら google.script.run、外に置いた画面なら fetch（ログイン情報は送らない） */
 function server(fn, args, ok, ng) {
   if (IS_GAS) {
@@ -418,7 +431,11 @@ function onData(data) {
   PRELIM_MIN = +D.settings.prelimMin || PRELIM_MIN;
   SEMI_MIN = +D.settings.semiMin || SEMI_MIN;
   FINAL_MIN = +D.settings.finalMin || FINAL_MIN;
-  document.getElementById('appTitle').textContent = LIVE ? '⚾ 試合速報' : (D.settings.title || 'ソフトボール大会');
+  document.getElementById('appTitle').textContent = D.settings.title || 'ソフトボール大会';
+  if (FIRST_LOAD) { // 大会当日は、試合タブの「いま」から始める
+    FIRST_LOAD = false;
+    if (isEventDay() && !Q.get('tab') && VIEW !== 'live') { TAB = 'games'; GAME_MODE = 'now'; }
+  }
   document.getElementById('modeBadge').hidden = !D.staff;
   if (!ONLINE && Q.get('edit') && D.staff && !EDIT) { // プレビュー用：?edit=P09 で入力画面を開いた状態にする
     var pe = D.matches.concat(D.finals).filter(function (x) { return x.id === Q.get('edit'); })[0];
@@ -437,12 +454,6 @@ function mockGetData(cb) {
     delete data.settings.staffKey;
     data.staff = !!staff;
     data.fetchedAt = '見本データ';
-    if (LIVE) { // サーバーの getLive と同じ：速報に必要な分だけ
-      var keep = ['title', 'eventDate', 'reserveDate', 'venue', 'finalists', 'prelimMin', 'semiMin', 'finalMin'], st = {};
-      keep.forEach(function (k) { if (data.settings[k] !== undefined) st[k] = data.settings[k]; });
-      return cb({ live: true, staff: !!staff, settings: st, matches: data.matches, finals: data.finals, fetchedAt: '見本データ',
-        entries: data.entries.map(function (e) { return { code: e.code, name: e.name, rankAdj: e.rankAdj }; }) });
-    }
     if (!staff) {
       delete data.settings.staffNotice;
       ['teams', 'tasks', 'assignments', 'roles', 'equipment', 'budget'].forEach(function (k) { delete data[k]; });
@@ -505,7 +516,7 @@ function mockLiveUpdate(kind, id, op, arg, who) {
   if (op === 'reopen') m.status = '試合中';
   if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; if (kind === 'final') m.winnerAdj = ''; }
   m.by = who; m.at = '見本';
-  mockGetData(function (d) { LIVE_BUSY = Math.max(0, LIVE_BUSY - 1); onData(d); });
+  mockGetData(function (d) { LIVE_BUSY = Math.max(0, LIVE_BUSY - 1); onLive(d); });
 }
 
 /* ---------- 日付まわり ---------- */
@@ -824,17 +835,9 @@ function noNamesInfo() {
     esc(D.entries.length ? D.entries[D.entries.length - 1].code : 'K') + '）で表示しています。</div>';
 }
 
-function liveUrl() {
-  var q = '?v=live' + (D.staff && STAFF_KEY ? '&k=' + encodeURIComponent(STAFF_KEY) : '');
-  return BASE_URL ? BASE_URL + q : 'preview/phone.html' + q + '&h=1600';
-}
 function viewGames() {
-  var h = '';
-  if (!LIVE) {
-    h += seg('game', GAME_MODE, [['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
-    h += '<a class="btn" style="width:100%;justify-content:center;margin:4px 0 2px" href="' + esc(liveUrl()) + '" target="_top">⚾ 試合速報を開く' +
-      (D.staff ? '（記録係の画面）' : '') + '</a>';
-  }
+  var h = seg('game', GAME_MODE, [['now', 'いま'], ['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
+  if (GAME_MODE === 'now') return h + viewNow();
   h += noNamesInfo();
   if (!D.matches.length) return h + '<div class="empty">対戦表はまだ登録されていません</div>';
   var S = standings();
@@ -943,7 +946,6 @@ function gamesTeam(S) {
 
 /* ================================================================ 画面切り替え */
 function tabsFor() {
-  if (LIVE) return ['now', 'rounds', 'table', 'final', 'team'];
   return D.staff ? ['home', 'progress', 'games', 'event', 'day', 'docs'] : ['home', 'games', 'event', 'day', 'docs'];
 }
 function buildTabs() {
@@ -961,8 +963,7 @@ function buildTabs() {
 function render() {
   if (!D) return;
   document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === TAB); });
-  var html = LIVE ? (TAB === 'now' ? viewNow() : (GAME_MODE = TAB, viewGames()))
-    : { home: viewHome, progress: viewProgress, games: viewGames, event: viewEvent, day: viewDay, docs: viewDocs }[TAB]();
+  var html = { home: viewHome, progress: viewProgress, games: viewGames, event: viewEvent, day: viewDay, docs: viewDocs }[TAB]();
   html += '<div class="foot">データ取得：' + esc(D.fetchedAt || '') + (DEBUG_TODAY ? '　（表示日：' + esc(DEBUG_TODAY) + (DEBUG_TIME ? ' ' + esc(DEBUG_TIME) : '') + '）' : '') + '</div>';
   document.getElementById('view').innerHTML = html;
   bindView();
@@ -1007,7 +1008,7 @@ function viewHome() {
   return h;
 }
 function homeGames() {
-  var h = '<a class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" href="' + esc(liveUrl()) + '" target="_top">⚾ 試合速報を開く（いまの試合と点数）</a>';
+  var h = '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" data-go="games" data-mode="now">⚾ 試合速報（いまの試合と点数）</button>';
   var live = D.matches.filter(isLive);
   if (live.length) h += '<h2 class="sec">いま試合中</h2>' + live.map(prelimCard).join('');
   var recent = D.matches.filter(function (m) { return !isBye(m) && isDone(m); }).slice(-4).reverse();
@@ -1016,7 +1017,7 @@ function homeGames() {
   return h;
 }
 
-/* ================================================================ 試合速報（v=live） */
+/* ================================================================ 試合速報（試合タブの「いま」） */
 /** グラウンドごとに「いまの試合」（試合中 → 次の未開始 → なし）を決める */
 function groundBoard() {
   var S = standings(), R = resolveFinals(S), grounds = [];
@@ -1037,17 +1038,18 @@ function nowSide(x, side) {
 }
 function viewNow() {
   var board = groundBoard(), rec = D.staff, my = store(LIVE_GROUND_KEY);
-  var h = '<div class="live-head"><b>' + esc(D.settings.title || '') + '</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') + '</span></div>';
+  var h = '<div class="live-head"><b>⚾ 試合速報</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') + '</span></div>';
   h += noNamesInfo();
   if (rec) {
-    h += '<div class="rec-bar">記録係：担当グラウンド <select id="groundSel"><option value="">全部見る</option>' +
+    h += '<div class="rec-bar">記録係：担当グラウンド <select id="groundSel"><option value="">見るだけ（入力しない）</option>' +
       board.map(function (b) { return '<option value="' + esc(b.ground) + '"' + (b.ground === my ? ' selected' : '') + '>' + esc(ground(b.ground)) + '</option>'; }).join('') +
       '</select></div>';
   }
+  if (rec && !my) h += '<div class="muted" style="margin:-4px 0 8px">点数を入れるときは、上で自分の担当グラウンドを選ぶとボタンが出ます。</div>';
   var shown = rec && my ? board.filter(function (b) { return b.ground === my; }) : board;
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
-  h += shown.map(function (b) { return nowCard(b, rec && (!my || b.ground === my)); }).join('');
-  if (rec && my) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「全部見る」を選んでください。</div>';
+  h += shown.map(function (b) { return nowCard(b, rec && !!my); }).join('');
+  if (rec && my) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「見るだけ」に戻してください。</div>';
   return h;
 }
 function nowCard(b, canRec) {
@@ -1118,14 +1120,14 @@ function liveOp(el) {
   if (ONLINE) {
     server('liveUpdate', [STAFF_KEY, kind, id, op, arg, who], function (d) {
       LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
-      if (!LIVE_BUSY) onData(d); // 連打中は最後の結果だけ反映
+      if (!LIVE_BUSY) onLive(d); // 連打中は最後の結果だけ反映
     }, function (e) {
       LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
       alert('送信できませんでした：' + (e && e.message || e) + '\n画面を最新にします。');
-      load(true);
+      loadLive();
     });
   } else {
-    try { mockLiveUpdate(kind, id, op, arg, who); } catch (e) { LIVE_BUSY = 0; alert(e.message); load(true); }
+    try { mockLiveUpdate(kind, id, op, arg, who); } catch (e) { LIVE_BUSY = 0; alert(e.message); loadLive(); }
   }
 }
 /** ホームのアトラクション欄：当日はランキング上位3位、それ以外は紹介 */
@@ -1482,7 +1484,7 @@ function bindView() {
     b.onclick = function () {
       var k = b.dataset.seg, val = b.dataset.val;
       if (k === 'prog') PROG_MODE = val;
-      if (k === 'game') { GAME_MODE = val; EDIT = null; }
+      if (k === 'game') { GAME_MODE = val; EDIT = null; if (val === 'now') loadLive(); }
       if (k === 'doc') DOC_MODE = val;
       if (k === 'plan') BUDGET_PLAN = val;
       render();
@@ -1559,17 +1561,18 @@ document.getElementById('reloadBtn').onclick = function () { EDIT = null; load()
 
 // 当日・試合タブは1分ごとに自動更新（入力中は止める）
 setInterval(function () {
-  if (LIVE || !D || !ONLINE || EDIT || SAVING || document.visibilityState !== 'visible' || typingRecord()) return;
+  if (isNow() || !D || !ONLINE || EDIT || SAVING || document.visibilityState !== 'visible' || typingRecord()) return;
   if (TAB === 'games' || TAB === 'event' || (TAB === 'home' && isEventDay())) load(true);
 }, 60000);
-// 試合速報は20秒ごと（記録係が送信中のときは待つ）
+// 「いま」は20秒ごと（記録係が送信中のときは待つ）
 setInterval(function () {
-  if (!LIVE || !D || !ONLINE || LIVE_BUSY || EDIT || SAVING || document.visibilityState !== 'visible') return;
-  load(true);
+  if (!isNow() || !D || !ONLINE || LIVE_BUSY || EDIT || SAVING || document.visibilityState !== 'visible') return;
+  loadLive();
 }, 20000);
-document.addEventListener('visibilitychange', function () { if (LIVE && D && ONLINE && !LIVE_BUSY && document.visibilityState === 'visible') load(true); });
+document.addEventListener('visibilitychange', function () { if (isNow() && D && ONLINE && !LIVE_BUSY && document.visibilityState === 'visible') loadLive(); });
 
 (function () { // プレビュー用：?tab=games&gm=final&me=坂下 浩一
+  if (VIEW === 'live') { TAB = 'games'; GAME_MODE = 'now'; } // 以前の試合速報URL（?v=live）
   if (Q.get('tab')) TAB = Q.get('tab');
   if (Q.get('gm')) GAME_MODE = Q.get('gm');
   if (Q.get('dm')) DOC_MODE = Q.get('dm');
