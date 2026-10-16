@@ -1330,7 +1330,12 @@ function attrRanking(a) {
 }
 function medal(rank) { return ['', '🥇', '🥈', '🥉'][rank] || rank; }
 function affHtml(team) { return !team ? '' : entryOf(team) ? teamHtml(team) : esc(team); }
-function fmtVal(v, a) { return (Math.round(v * 100) / 100) + (a.unit || ''); }
+/** 距離は「〇m〇cm」で入力・表示する（記録はメートルの小数で保存。例：52.05 → 52m5cm） */
+function isDist(a) { return a.recordType === '距離'; }
+function fmtVal(v, a) {
+  if (isDist(a)) { var cm = Math.round(v * 100); return Math.floor(cm / 100) + 'm' + (cm % 100) + 'cm'; }
+  return (Math.round(v * 100) / 100) + (a.unit || '');
+}
 function rankRows(a, list, del) {
   return list.map(function (x) {
     return '<div class="rank-row"><span class="rk">' + medal(x.rank) + '</span>' +
@@ -1369,16 +1374,22 @@ function attrCard(a) {
   return h + '</div>';
 }
 function recForm(a) {
-  var f = RF[a.id] || (RF[a.id] = { name: '', team: '', cat: '', value: 0 });
+  var f = RF[a.id] || (RF[a.id] = { name: '', team: '', cat: '', value: 0, m: '', cm: '' });
+  var num2 = function (key, max) {
+    return '<input data-rf="' + key + '" data-a="' + esc(a.id) + '" type="number" inputmode="numeric" min="0" max="' + max + '" step="1" placeholder="0" value="' + esc(f[key]) + '">';
+  };
+  var valrow = isDist(a)
+    ? '<div class="valrow">' + num2('m', 999) + '<span class="u" style="flex:none">m</span>' + num2('cm', 99) + '<span class="u">cm</span></div>'
+    : '<div class="valrow"><button class="step-btn" data-rstep="-1" data-a="' + esc(a.id) + '">−</button>' +
+      '<input data-rf="value" data-a="' + esc(a.id) + '" type="number" inputmode="decimal" min="0" step="any" value="' + esc(f.value) + '">' +
+      '<button class="step-btn" data-rstep="1" data-a="' + esc(a.id) + '">＋</button><span class="u">' + esc(a.unit || '') + '</span></div>';
   return '<div class="recform"><div class="t">記録を入力（委員のみ）</div>' +
     '<div class="muted" style="margin:-4px 0 8px">名前は参加者にも表示されます。子どもは下の名前やニックネームで</div>' +
     '<input data-rf="name" data-a="' + esc(a.id) + '" placeholder="挑戦者の名前" value="' + esc(f.name) + '">' +
     '<div class="row2"><input data-rf="team" data-a="' + esc(a.id) + '" list="teamList" placeholder="所属" value="' + esc(f.team) + '">' +
     '<select data-rf="cat" data-a="' + esc(a.id) + '"><option value="">区分なし</option>' +
     ['大人', '子ども'].map(function (c) { return '<option' + (f.cat === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select></div>' +
-    '<div class="valrow"><button class="step-btn" data-rstep="-1" data-a="' + esc(a.id) + '">−</button>' +
-    '<input data-rf="value" data-a="' + esc(a.id) + '" type="number" inputmode="decimal" min="0" step="any" value="' + esc(f.value) + '">' +
-    '<button class="step-btn" data-rstep="1" data-a="' + esc(a.id) + '">＋</button><span class="u">' + esc(a.unit || '') + '</span></div>' +
+    valrow +
     '<div class="btns"><button class="btn" data-addrec="' + esc(a.id) + '">' + (SAVING ? '保存中…' : '記録を追加') + '</button></div></div>';
 }
 /** 所属の入力（チーム名・記号）を記号にそろえる。当てはまらなければそのまま */
@@ -1394,17 +1405,25 @@ function addRec(attrId) {
   var f = RF[attrId];
   if (!f || SAVING) return;
   if (!f.name.trim()) { alert('挑戦者の名前を入れてください'); return; }
-  if (!/^\d+(\.\d+)?$/.test(String(f.value))) { alert('記録は数字で入れてください'); return; }
+  var a = D.attractions.filter(function (x) { return x.id === attrId; })[0];
+  var value = String(f.value);
+  if (a && isDist(a)) {
+    var m = String(f.m || '').trim(), cm = String(f.cm || '').trim();
+    if (!m && !cm) { alert('距離を「〇m〇cm」で入れてください'); return; }
+    if ((m && !/^\d{1,3}$/.test(m)) || (cm && !/^\d{1,2}$/.test(cm))) { alert('m と cm は整数で入れてください（cm は 0〜99）'); return; }
+    value = String(((+m || 0) * 100 + (+cm || 0)) / 100);
+  }
+  if (!/^\d+(\.\d+)?$/.test(value)) { alert('記録は数字で入れてください'); return; }
   var who = getMe() || '委員';
-  var done = function (data) { RF[attrId] = { name: '', team: '', cat: f.cat, value: 0 }; onSaved(data); };
+  var done = function (data) { RF[attrId] = { name: '', team: '', cat: f.cat, value: 0, m: '', cm: '' }; onSaved(data); };
   SAVING = true; render();
   if (ONLINE) {
-    server('addRecord', [STAFF_KEY, attrId, f.name.trim(), normTeam(f.team), f.cat, String(f.value), who], done, function (e) {
+    server('addRecord', [STAFF_KEY, attrId, f.name.trim(), normTeam(f.team), f.cat, value, who], done, function (e) {
       SAVING = false; render(); alert('保存できませんでした：' + (e && e.message || e));
     });
   } else {
     MOCK.attractionRecords.push({ id: 'M' + Date.now(), attrId: attrId, name: f.name.trim(), team: normTeam(f.team), cat: f.cat,
-      value: String(f.value), by: who, at: '見本' });
+      value: value, by: who, at: '見本' });
     mockGetData(done);
   }
 }
