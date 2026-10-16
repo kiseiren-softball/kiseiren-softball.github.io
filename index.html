@@ -307,6 +307,7 @@
   .rbtn.big { padding: 16px 6px; font-size: 19px; }
   .rbtn.link { background: none; color: var(--sub); font-size: 12px; font-weight: 600; text-decoration: underline; padding: 4px; }
   .rbtn:active { transform: scale(.97); }
+  .rbtn:disabled { background: #eef1f5; color: #b3bcc8; font-size: 15px; cursor: default; transform: none; }
   .rinn { flex: 1.2; text-align: center; font-weight: 800; font-size: 18px; }
 
   .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1c2430; color: #fff; padding: 8px 16px; border-radius: 99px; font-size: 14px; z-index: 20; }
@@ -481,8 +482,8 @@ function mockGetData(cb) {
       MOCK.finals.forEach(function (f) { f.s1 = ''; f.s3 = ''; f.winnerAdj = ''; f.by = ''; f.at = ''; f.status = ''; f.inning = ''; });
       if (sc === 'live') {
         var r3 = MOCK.matches.filter(function (m) { return m.round === '第3試合'; });
-        if (r3[0]) { r3[0].status = '試合中'; r3[0].inning = '3回裏'; r3[0].s1 = '2'; r3[0].s3 = '1'; }
-        if (r3[1]) { r3[1].status = '試合中'; r3[1].inning = '2回表'; r3[1].s1 = '0'; r3[1].s3 = '4'; }
+        if (r3[0]) { r3[0].status = '試合中'; r3[0].inning = '3回裏'; r3[0].s1 = '2'; r3[0].s3 = '1'; r3[0].top = '1塁'; }
+        if (r3[1]) { r3[1].status = '試合中'; r3[1].inning = '2回表'; r3[1].s1 = '0'; r3[1].s3 = '4'; r3[1].top = '3塁'; }
         if (r3[2]) { r3[2].status = '終了'; r3[2].inning = '5回裏'; r3[2].s1 = '6'; r3[2].s3 = '3'; }
       }
     }
@@ -498,6 +499,7 @@ function mockSaveScore(kind, id, s1, s3, who, adj) {
     if (m.id !== id) return;
     m.s1 = s1; m.s3 = s3; m.by = who; m.at = '見本';
     m.status = s1 === '' && s3 === '' ? '' : '終了';
+    if (m.status === '') { m.inning = ''; m.top = ''; }
     if (kind === 'final' && adj != null) m.winnerAdj = adj;
   });
   mockGetData(onSaved);
@@ -506,7 +508,12 @@ function mockSaveScore(kind, id, s1, s3, who, adj) {
 function mockLiveUpdate(kind, id, op, arg, who) {
   var m = (kind === 'final' ? MOCK.finals : MOCK.matches).filter(function (x) { return x.id === id; })[0];
   var n = function (v) { return v === '' || v == null ? 0 : +v; };
-  if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+  if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg === '1塁' || arg === '3塁') m.top = arg; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+  if (op === 'top') m.top = arg;
+  if (op === 'score') {
+    var bat = battingSide({ top: m.top, inning: arg.inning || m.inning || '1回表' });
+    if (bat && bat !== arg.side) throw new Error('いまは' + (arg.inning || m.inning) + '（' + sideName(bat) + '側の攻撃）です。守っているチームの点は変えられません');
+  }
   if (op === 'score') { m[arg.side] = String(Math.max(0, n(m[arg.side]) + (arg.d < 0 ? -1 : 1))); if (m.status !== '終了') m.status = '試合中'; }
   if (op === 'inning') m.inning = stepInning(m.inning, arg);
   if (op === 'finish') {
@@ -514,7 +521,7 @@ function mockLiveUpdate(kind, id, op, arg, who) {
     m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); m.status = '終了';
   }
   if (op === 'reopen') m.status = '試合中';
-  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; if (kind === 'final') m.winnerAdj = ''; }
+  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; if (kind === 'final') m.winnerAdj = ''; }
   m.by = who; m.at = '見本';
   mockGetData(function (d) { LIVE_BUSY = Math.max(0, LIVE_BUSY - 1); onLive(d); });
 }
@@ -662,6 +669,14 @@ function stepInning(text, d) {
   i = Math.max(0, i + (d < 0 ? -1 : 1));
   return (Math.floor(i / 2) + 1) + '回' + (i % 2 ? '裏' : '表');
 }
+/** 攻撃中の側（'s1'＝1塁側／'s3'＝3塁側）。表＝先攻、裏＝後攻。先攻が未設定なら null（ロックしない） */
+function battingSide(m) {
+  if (m.top !== '1塁' && m.top !== '3塁') return null;
+  var t = String(m.inning || '1回表').match(/(\d+)回(表|裏)/);
+  var top = m.top === '1塁' ? 's1' : 's3';
+  return t && t[2] === '裏' ? (top === 's1' ? 's3' : 's1') : top;
+}
+function sideName(side) { return side === 's3' ? '3塁' : '1塁'; }
 
 /** 予選の順位表 */
 function standings() {
@@ -1068,7 +1083,10 @@ function nowCard(b, canRec) {
     '<div class="ns"><div class="nt">' + teamHtml(s1.code, s1) + '</div><div class="nb">1塁側</div></div>' +
     '<div class="nv">' + (live ? (a || 0) + '<i>-</i>' + (c || 0) : 'vs') + '</div>' +
     '<div class="ns r"><div class="nt">' + teamHtml(s3.code, s3) + '</div><div class="nb">3塁側</div></div></div>';
-  if (live) h += '<div class="now-inning">' + esc(m.inning || '1回表') + '</div>';
+  if (live) {
+    var bat = battingSide(m);
+    h += '<div class="now-inning">' + esc(m.inning || '1回表') + (bat ? '（' + sideName(bat) + '側の攻撃）' : '') + '</div>';
+  }
   if (x.kind === 'match' && m.umpire) h += '<div class="muted" style="text-align:center">審判：' + (entryOf(m.umpire) ? teamHtml(m.umpire) : esc(m.umpire)) + '</div>';
   if (canRec && s1.code && s3.code) h += recPanel(x);
   if (b.last) h += lastLine(b.last);
@@ -1085,34 +1103,53 @@ function recPanel(x) {
   var b = function (op, label, cls, extra) {
     return '<button class="rbtn ' + (cls || '') + '" data-live="' + op + '" data-kind="' + kind + '" data-id="' + id + '"' + (extra || '') + '>' + label + '</button>';
   };
-  if (!live) return '<div class="rec">' + b('start', '▶ 試合開始', 'go big') + '</div>';
-  var tie = num(m.s1) === num(m.s3);
-  return '<div class="rec">' +
-    '<div class="rrow">' + b('score', '＋1', 'plus', ' data-side="s1" data-d="1"') + b('score', '＋1', 'plus', ' data-side="s3" data-d="1"') + '</div>' +
-    '<div class="rrow">' + b('score', '−1', 'minus', ' data-side="s1" data-d="-1"') + b('score', '−1', 'minus', ' data-side="s3" data-d="-1"') + '</div>' +
+  if (!live) return '<div class="rec"><div class="muted" style="text-align:center;margin-bottom:6px">先攻のチームを選んで開始</div>' +
+    '<div class="rrow">' + b('start', '▶ 1塁側が<br>先攻で開始', 'go big', ' data-arg="1塁"') + b('start', '▶ 3塁側が<br>先攻で開始', 'go big', ' data-arg="3塁"') + '</div></div>';
+  var tie = num(m.s1) === num(m.s3), bat = battingSide(m);
+  // 攻撃中のチームだけ ＋1／−1 を押せる（先攻が未設定の試合はロックしない）
+  var sc = function (side, d) {
+    if (bat && bat !== side) return '<button class="rbtn ' + (d > 0 ? 'plus' : 'minus') + '" disabled>守備中</button>';
+    return b('score', d > 0 ? '＋1' : '−1', d > 0 ? 'plus' : 'minus', ' data-side="' + side + '" data-d="' + d + '"');
+  };
+  var topRow = bat
+    ? '<div class="rrow small">' + b('top', '先攻を入れ替える（いまは' + esc(m.top) + '側が先攻）', 'link', ' data-arg="' + (m.top === '1塁' ? '3塁' : '1塁') + '"') + '</div>'
+    : '<div class="muted" style="text-align:center;margin-bottom:6px">先攻を選ぶと、攻撃中のチームだけ点数を入れられます</div>' +
+      '<div class="rrow">' + b('top', '1塁側が先攻', 'sub', ' data-arg="1塁"') + b('top', '3塁側が先攻', 'sub', ' data-arg="3塁"') + '</div>';
+  return '<div class="rec">' + (bat ? '' : topRow) +
+    '<div class="rrow">' + sc('s1', 1) + sc('s3', 1) + '</div>' +
+    '<div class="rrow">' + sc('s1', -1) + sc('s3', -1) + '</div>' +
     '<div class="rrow">' + b('inning', '◀ 回', 'sub', ' data-d="-1"') + '<span class="rinn">' + esc(m.inning || '1回表') + '</span>' + b('inning', '回 ▶', 'sub', ' data-d="1"') + '</div>' +
     (kind === 'final' && tie ? '<div class="rrow">' + b('finish', '同点・1塁がジャンケン勝ち', 'end', ' data-arg="1塁"') + b('finish', '同点・3塁がジャンケン勝ち', 'end', ' data-arg="3塁"') + '</div>'
       : '<div class="rrow">' + b('finish', '■ 試合終了', 'end big') + '</div>') +
+    (bat ? topRow : '') +
     '<div class="rrow small">' + b('reset', '最初からやり直す', 'link') + '</div></div>';
 }
 /** 記録係のボタンを押したとき：画面をすぐ変えてから送信し、結果で上書きする */
 function liveOp(el) {
   var kind = el.dataset.kind, id = el.dataset.id, op = el.dataset.live, arg = null;
-  if (op === 'score') arg = { side: el.dataset.side, d: +el.dataset.d };
+  var m = (kind === 'final' ? D.finals : D.matches).filter(function (x) { return x.id === id; })[0];
+  if (op === 'start' || op === 'top') arg = el.dataset.arg;
+  if (op === 'top' && m && m.top && !confirm('先攻を' + arg + '側に入れ替えますか？')) return;
+  if (op === 'score') {
+    // 押したときの回も送る（回送りの直後に押して、送信の順番が入れ替わっても弾かれないように）
+    arg = { side: el.dataset.side, d: +el.dataset.d, inning: (m && m.inning) || '1回表' };
+    var bat = m && battingSide(m);
+    if (bat && bat !== arg.side) return;
+  }
   if (op === 'inning') arg = +el.dataset.d;
   if (op === 'finish') {
     arg = el.dataset.arg || null;
     if (!confirm('この試合を終了して、結果を確定しますか？')) return;
   }
   if (op === 'reset' && !confirm('この試合の点数・状態を消して、試合前に戻しますか？')) return;
-  var m = (kind === 'final' ? D.finals : D.matches).filter(function (x) { return x.id === id; })[0];
   var n = function (v) { return num(v) || 0; };
   if (m) { // 先に画面だけ変える
-    if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+    if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg) m.top = arg; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+    if (op === 'top') m.top = arg;
     if (op === 'score') m[arg.side] = String(Math.max(0, n(m[arg.side]) + (arg.d < 0 ? -1 : 1)));
     if (op === 'inning') m.inning = stepInning(m.inning, arg);
     if (op === 'finish') { m.status = '終了'; if (arg) m.winnerAdj = arg; }
-    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; }
+    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; }
     render();
   }
   LIVE_BUSY++;
