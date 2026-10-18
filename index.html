@@ -99,6 +99,8 @@
   .seg { display: flex; background: #e3e8ef; border-radius: 12px; padding: 3px; margin: 14px 0 6px; }
   .seg button { flex: 1; border: 0; background: transparent; padding: 8px 2px; border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--sub); cursor: pointer; white-space: nowrap; }
   .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .seg button.rec { background: #fff4e6; color: #d9480f; }
+  .seg button.rec.on { background: #e8590c; color: #fff; }
 
   /* アコーディオン */
   .acc > summary { list-style: none; cursor: pointer; }
@@ -291,6 +293,10 @@
   .now-score .nv { font-size: 36px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent); white-space: nowrap; }
   .now-score .nv i { font-style: normal; color: #9aa4b1; margin: 0 4px; }
   .now-inning { text-align: center; font-weight: 800; font-size: 15px; color: var(--accent); }
+  .timer { margin: 6px auto 2px; width: fit-content; padding: 4px 12px; border-radius: 99px; background: #edf2f7; color: var(--sub);
+    font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; }
+  .timer.warn { background: #fff3bf; color: #8a5a00; }
+  .timer.over { background: #ffe3e3; color: #c92a2a; }
   .now-last { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--sub); }
   .rec { margin-top: 10px; background: #f6f8fb; border-radius: 12px; padding: 10px; }
   .rrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
@@ -360,6 +366,7 @@ var PRELIM_MIN = 40, SEMI_MIN = 40, FINAL_MIN = 60; // 設定シートの値で�
 var LIVE_GROUND_KEY = 'softball_ground';
 var FIRST_LOAD = true;
 var LIVE_BUSY = 0;     // 記録係の送信中の件数（この間は自動更新しない）
+var CLOCK_OFFSET = 0;  // サーバーの時計 − このスマホの時計（ミリ秒）。試合時間のタイマーを全員でそろえるため
 var ICONS = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
   progress: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
@@ -369,7 +376,7 @@ var ICONS = {
   docs: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>'
 };
 var TAB_LABEL = { home: 'ホーム', progress: '進捗', games: '試合', event: 'イベント', day: '当日', docs: '資料',
-  now: 'いま', rounds: '対戦表', table: '順位表', final: '決勝', team: 'チーム別' };
+  now: '速報', rounds: '対戦表', table: '順位表', final: '決勝', team: 'チーム別' };
 ICONS.now = '<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/>';
 ICONS.rounds = '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>';
 ICONS.table = '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>';
@@ -393,6 +400,7 @@ function loadLive() {
 }
 function onLive(d) {
   if (!D) return;
+  if (d.serverNow) CLOCK_OFFSET = d.serverNow - Date.now();
   D.matches = d.matches || [];
   D.finals = d.finals || [];
   (d.entries || []).forEach(function (e) {
@@ -420,6 +428,7 @@ function onError(e) {
 }
 function onData(data) {
   D = data;
+  if (D.serverNow) CLOCK_OFFSET = D.serverNow - Date.now();
   D.settings = D.settings || {};
   D.eventDate = normDate(D.settings.eventDate) || '2026-11-14';
   D.teamColor = {};
@@ -481,8 +490,9 @@ function mockGetData(cb) {
       MOCK.finals.forEach(function (f) { f.s1 = ''; f.s3 = ''; f.winnerAdj = ''; f.by = ''; f.at = ''; f.status = ''; f.inning = ''; });
       if (sc === 'live') {
         var r3 = MOCK.matches.filter(function (m) { return m.round === '第3試合'; });
-        if (r3[0]) { r3[0].status = '試合中'; r3[0].inning = '3回裏'; r3[0].s1 = '2'; r3[0].s3 = '1'; r3[0].top = '1塁'; }
-        if (r3[1]) { r3[1].status = '試合中'; r3[1].inning = '2回表'; r3[1].s1 = '0'; r3[1].s3 = '4'; r3[1].top = '3塁'; }
+        // 見本：25分前と37分前（残り5分以下＝黄色）に始まった試合
+        if (r3[0]) { r3[0].status = '試合中'; r3[0].inning = '3回裏'; r3[0].s1 = '2'; r3[0].s3 = '1'; r3[0].top = '1塁'; r3[0].startedAt = Date.now() - 25 * 60000; }
+        if (r3[1]) { r3[1].status = '試合中'; r3[1].inning = '2回表'; r3[1].s1 = '0'; r3[1].s3 = '4'; r3[1].top = '3塁'; r3[1].startedAt = Date.now() - 37 * 60000; }
         if (r3[2]) { r3[2].status = '終了'; r3[2].inning = '5回裏'; r3[2].s1 = '6'; r3[2].s3 = '3'; }
       }
     }
@@ -496,7 +506,7 @@ function mockGetData(cb) {
 function mockResetPractice() {
   MOCK.matches.concat(MOCK.finals).forEach(function (m) {
     if (m.third === '不戦' || m.first === '不戦') return;
-    m.s1 = ''; m.s3 = ''; m.by = ''; m.at = ''; m.status = ''; m.inning = ''; m.top = ''; m.winnerAdj = '';
+    m.s1 = ''; m.s3 = ''; m.by = ''; m.at = ''; m.status = ''; m.inning = ''; m.top = ''; m.winnerAdj = ''; m.startedAt = '';
   });
   mockGetData(function (d) { LIVE_BUSY = 0; onLive(d); });
 }
@@ -504,7 +514,7 @@ function mockResetPractice() {
 function mockLiveUpdate(kind, id, op, arg, who) {
   var m = (kind === 'final' ? MOCK.finals : MOCK.matches).filter(function (x) { return x.id === id; })[0];
   var n = function (v) { return v === '' || v == null ? 0 : +v; };
-  if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg === '1塁' || arg === '3塁') m.top = arg; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+  if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg === '1塁' || arg === '3塁') m.top = arg; m.startedAt = m.startedAt || Date.now(); m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
   if (op === 'top') m.top = arg;
   if (op === 'score') {
     var bat = battingSide({ top: m.top, inning: arg.inning || m.inning || '1回表' });
@@ -517,7 +527,7 @@ function mockLiveUpdate(kind, id, op, arg, who) {
     m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); m.status = '終了';
   }
   if (op === 'reopen') { m.status = '試合中'; if (kind === 'final') m.winnerAdj = ''; }
-  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; if (kind === 'final') m.winnerAdj = ''; }
+  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; if (kind === 'final') m.winnerAdj = ''; }
   m.by = who; m.at = '見本';
   mockGetData(function (d) { LIVE_BUSY = Math.max(0, LIVE_BUSY - 1); onLive(d); });
 }
@@ -627,7 +637,7 @@ function dateGroupsHtml(list) {
 function prepFor(roleName) { return D.tasks.filter(function (t) { return (t.roles || []).indexOf(roleName) >= 0; }); }
 function seg(name, cur, items) {
   return '<div class="seg">' + items.map(function (it) {
-    return '<button data-seg="' + name + '" data-val="' + it[0] + '" class="' + (cur === it[0] ? 'on' : '') + '">' + it[1] + '</button>';
+    return '<button data-seg="' + name + '" data-val="' + it[0] + '" class="' + (cur === it[0] ? 'on' : '') + (it[2] ? ' ' + it[2] : '') + '">' + it[1] + '</button>';
   }).join('') + '</div>';
 }
 function ground(g) { return g ? 'グラウンド' + (CIRCLED[+g] || g) : ''; }
@@ -821,7 +831,8 @@ function noNamesInfo() {
 }
 
 function viewGames() {
-  var h = seg('game', GAME_MODE, [['now', 'いま'], ['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
+  // 委員には「記録・速報」（記録係が試合を始める場所）、参加者には「速報」
+  var h = seg('game', GAME_MODE, [D.staff ? ['now', '記録・速報', 'rec'] : ['now', '速報'], ['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
   if (GAME_MODE === 'now') return h + viewNow();
   h += noNamesInfo();
   if (!D.matches.length) return h + '<div class="empty">対戦表はまだ登録されていません</div>';
@@ -871,9 +882,11 @@ function gamesFinal(S) {
   if (R.top && R.top.winner) {
     var w = R.top[R.top.winner], l = R.top[R.top.winner === 'first' ? 'third' : 'first'];
     var third = R.third && R.third.winner ? R.third[R.third.winner] : null;
+    // 敢闘賞＝3位決定戦で負けたチーム（4位）
+    var fourth = R.third && R.third.winner ? R.third[R.third.winner === 'first' ? 'third' : 'first'] : null;
     h += '<div class="champ"><div class="lbl">🏆 優勝</div><div class="nm">' + esc(teamText(w.code)) + '</div>' +
       '<div class="podium"><div>準優勝<b>' + esc(teamText(l.code)) + '</b></div><div>3位<b>' + (third ? esc(teamText(third.code)) : '—') + '</b></div>' +
-      '<div>敢闘賞<b>—</b></div></div></div>';
+      '<div>敢闘賞<b>' + (fourth ? esc(teamText(fourth.code)) : '—') + '</b></div></div></div>';
   }
   h += '<div class="muted" style="margin-top:10px">準決勝は' + SEMI_MIN + '分、優勝戦・3位決定戦は' + FINAL_MIN + '分（7回まで）で打ち切り。同点はキャプテンのジャンケン。組み合わせ方式はチーム数に合わせて実行委員会で決めます。</div>';
   return h;
@@ -986,7 +999,9 @@ function viewHome() {
   return h;
 }
 function homeGames() {
-  var h = '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" data-go="games" data-mode="now">⚾ 試合速報（いまの試合と点数）</button>';
+  var h = D.staff
+    ? '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px;background:#e8590c" data-go="games" data-mode="now">▶ 試合の記録（記録係はここから）</button>'
+    : '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" data-go="games" data-mode="now">⚾ 試合速報（いまの試合と点数）</button>';
   var live = D.matches.filter(isLive);
   if (live.length) h += '<h2 class="sec">いま試合中</h2>' + live.map(prelimCard).join('');
   var recent = D.matches.filter(function (m) { return !isBye(m) && isDone(m); }).slice(-4).reverse();
@@ -1016,7 +1031,7 @@ function nowSide(x, side) {
 }
 function viewNow() {
   var board = groundBoard(), rec = D.staff, my = store(LIVE_GROUND_KEY);
-  var h = '<div class="live-head"><b>⚾ 試合速報</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') + '</span></div>';
+  var h = '<div class="live-head"><b>' + (rec ? '⚾ 試合の記録・速報' : '⚾ 試合速報') + '</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') + '</span></div>';
   h += noNamesInfo();
   if (rec) {
     h += '<div class="rec-bar">記録係：担当グラウンド <select id="groundSel"><option value="">見るだけ（入力しない）</option>' +
@@ -1068,6 +1083,7 @@ function nowCard(b, canRec) {
   if (live) {
     var bat = battingSide(m);
     h += '<div class="now-inning">' + esc(m.inning || '1回表') + (bat ? '（' + sideName(bat) + '側の攻撃）' : '') + '</div>';
+    if (m.startedAt) h += timerHtml(+m.startedAt, x.kind === 'final' ? minutesOf(m) : PRELIM_MIN);
   }
   if (x.kind === 'match' && m.umpire) h += '<div class="muted" style="text-align:center">審判：' + (entryOf(m.umpire) ? teamHtml(m.umpire) : esc(m.umpire)) + '</div>';
   if (canRec && s1.code && s3.code) h += recPanel(x);
@@ -1075,6 +1091,24 @@ function nowCard(b, canRec) {
   if (b.last) h += lastLine(b.last, canRec && !live);
   if (b.rest) h +='<div class="muted" style="text-align:right">このあと ' + b.rest + ' 試合</div>';
   return h + '</div>';
+}
+/* 試合時間のタイマー：試合開始を押した時刻から数える。1秒ごとに tickTimers() で文字と色だけ書き換える */
+function timerHtml(start, min) {
+  var t = timerText(start, min);
+  return '<div class="timer' + (t.cls ? ' ' + t.cls : '') + '" data-timer="1" data-start="' + start + '" data-min="' + min + '">' + t.text + '</div>';
+}
+function timerText(start, min) {
+  var left = Math.round((start + min * 60000 - (Date.now() + CLOCK_OFFSET)) / 1000);
+  var mmss = function (s) { return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); };
+  if (left <= 0) return { cls: 'over', text: '⏱ ' + min + '分経過（+' + mmss(-left) + '）打ち切りの判断を' };
+  return { cls: left <= 300 ? 'warn' : '', text: '⏱ 残り ' + mmss(left) + '（' + min + '分）' };
+}
+function tickTimers() {
+  document.querySelectorAll('[data-timer]').forEach(function (el) {
+    var t = timerText(+el.dataset.start, +el.dataset.min);
+    el.textContent = t.text;
+    el.className = 'timer' + (t.cls ? ' ' + t.cls : '');
+  });
 }
 function lastLine(x, canUndo) {
   var m = x.m, s1 = nowSide(x, 'first'), s3 = nowSide(x, 'third');
@@ -1130,13 +1164,13 @@ function liveOp(el) {
   if (op === 'reopen' && !confirm('この試合の「試合終了」を取り消して、試合中に戻しますか？\n（点数と回はそのまま。直したら、もう一度「試合終了」を押してください）')) return;
   var n = function (v) { return num(v) || 0; };
   if (m) { // 先に画面だけ変える
-    if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg) m.top = arg; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
+    if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg) m.top = arg; m.startedAt = m.startedAt || Date.now() + CLOCK_OFFSET; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
     if (op === 'top') m.top = arg;
     if (op === 'score') m[arg.side] = String(Math.max(0, n(m[arg.side]) + (arg.d < 0 ? -1 : 1)));
     if (op === 'inning') m.inning = stepInning(m.inning, arg);
     if (op === 'finish') { m.status = '終了'; if (arg) m.winnerAdj = arg; }
     if (op === 'reopen') { m.status = '試合中'; if (kind === 'final') m.winnerAdj = ''; }
-    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; }
+    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; }
     render();
   }
   LIVE_BUSY++;
@@ -1578,6 +1612,7 @@ setInterval(function () {
   if (!isNow() || !D || !ONLINE || LIVE_BUSY || SAVING || document.visibilityState !== 'visible') return;
   loadLive();
 }, 20000);
+setInterval(tickTimers, 1000);
 document.addEventListener('visibilitychange', function () { if (isNow() && D && ONLINE && !LIVE_BUSY && document.visibilityState === 'visible') loadLive(); });
 
 (function () { // プレビュー用：?tab=games&gm=final&me=坂下 浩一
