@@ -39,6 +39,7 @@
   header.top h1 { font-size: 16px; margin: 0; flex: 1; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   header.top .mode { font-size: 11px; background: #ffd43b; color: #5c3d00; border-radius: 6px; padding: 1px 6px; font-weight: 800; }
   header.top .mode.practice { background: #fa5252; color: #fff; }
+  .stale-bar { margin: 0 -16px; padding: 4px 16px; background: #f1f3f5; color: var(--sub); font-size: 12px; text-align: center; }
   .practice-bar { margin: 0 -16px; padding: 8px 16px; background: #fff0f0; color: #c92a2a; border-bottom: 2px solid #fa5252;
     font-size: 13px; font-weight: 800; text-align: center; }
   header.top .reload { background: rgba(255,255,255,.18); border: 0; border-radius: 99px; padding: 4px 12px; font-size: 13px; color: #fff; cursor: pointer; }
@@ -325,6 +326,7 @@
     <button class="reload" id="reloadBtn" type="button">更新</button>
   </header>
   <div class="practice-bar" id="practiceBar" hidden>練習モード：入れた点数は本番の順位・結果には入りません</div>
+  <div class="stale-bar" id="staleBar" hidden></div>
   <main id="view"><div class="loading"><div class="spinner"></div>読み込み中…</div></main>
 </div>
 <nav class="tabs"><div class="in" id="tabs"></div></nav>
@@ -385,13 +387,43 @@ ICONS.team = '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 
 var RF = {};           // アトラクション記録の入力中の内容 {アトラクションID: {name, team, cat, value}}
 
 /* ---------- データ取得 ---------- */
+// 前回のデータをこのスマホに残しておき、次に開いたときはそれをすぐ表示して、裏で最新に入れ替える
+// （サーバーの読み込みは数秒〜10秒ほどかかることがあるため）。委員用・練習用・参加者用で分けて残す
+var SNAP_KEY = 'softball_snap_' + (STAFF_KEY ? 'staff' : 'pub') + (PRACTICE ? '_practice' : '');
+var STALE = false;     // 前回のデータを表示中（最新の取得中）
+function saveSnap(data) {
+  try { localStorage.setItem(SNAP_KEY, JSON.stringify({ at: Date.now(), data: data })); } catch (e) { /* 残せなくても動く */ }
+}
+function readSnap() {
+  try {
+    var s = JSON.parse(localStorage.getItem(SNAP_KEY) || 'null');
+    return s && s.data && Date.now() - s.at < 14 * 86400000 ? s : null; // 2週間より古いものは使わない
+  } catch (e) { return null; }
+}
+function showStale(msg) {
+  var bar = document.getElementById('staleBar');
+  bar.hidden = !msg;
+  bar.textContent = msg || '';
+}
 function load(silent) {
-  if (!silent) document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
-  if (ONLINE) {
-    server('getData', [STAFF_KEY, PRACTICE], onData, silent ? function () {} : onError);
-  } else {
-    mockGetData(onData);
+  if (!ONLINE) { mockGetData(onData); return; }
+  var snap = !silent && !D ? readSnap() : null;
+  if (snap) {
+    STALE = true;
+    onData(JSON.parse(JSON.stringify(snap.data)));
+    showStale('前回のデータを表示しています（最新を読み込み中…）');
+  } else if (!silent) {
+    document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
   }
+  server('getData', [STAFF_KEY, PRACTICE], function (data) {
+    saveSnap(data);
+    STALE = false;
+    showStale('');
+    onData(JSON.parse(JSON.stringify(data)));
+  }, function (e) {
+    if (snap) showStale('最新を読み込めませんでした（前回のデータを表示中）。上の「更新」で読み直せます');
+    else if (!silent) onError(e);
+  });
 }
 /** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる */
 function loadLive() {
@@ -1039,6 +1071,8 @@ function viewNow() {
       '</select></div>';
   }
   if (rec && !my) h += '<div class="muted" style="margin:-4px 0 8px">点数を入れるときは、上で自分の担当グラウンドを選ぶとボタンが出ます。</div>';
+  // 前回のデータを表示している間は、点数のボタンを出さない（古い点数に足してしまわないように）
+  if (rec && my && STALE) { h += '<div class="info">最新の点数を読み込み中です。数秒お待ちください（読み込めたらボタンが出ます）。</div>'; my = ''; }
   var shown = rec && my ? board.filter(function (b) { return b.ground === my; }) : board;
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
   h += shown.map(function (b) { return nowCard(b, rec && !!my); }).join('');
