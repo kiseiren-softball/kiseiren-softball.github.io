@@ -466,7 +466,7 @@ function onData(data) {
   D.teamColor = {};
   D.teamLeader = {};
   ['tasks', 'teams', 'assignments', 'roles', 'equipment', 'budget', 'entries', 'matches', 'finals', 'docs', 'timeline',
-   'attractions', 'attractionRecords'].forEach(function (k) { D[k] = D[k] || []; });
+   'attractions', 'attractionRecords', 'registration'].forEach(function (k) { D[k] = D[k] || []; });
   D.teams.forEach(function (t, i) { D.teamColor[t.name] = TEAM_COLORS[i % TEAM_COLORS.length]; D.teamLeader[t.name] = t.leader; });
   D.tasks.forEach(function (t) { t.date = normDate(t.date); t.phase = phaseOf(t.date); });
   PRELIM_MIN = +D.settings.prelimMin || PRELIM_MIN;
@@ -497,7 +497,7 @@ function mockGetData(cb) {
     data.fetchedAt = '見本データ';
     if (!staff) {
       delete data.settings.staffNotice;
-      ['teams', 'tasks', 'assignments', 'roles', 'equipment', 'budget'].forEach(function (k) { delete data[k]; });
+      ['teams', 'tasks', 'assignments', 'roles', 'equipment', 'budget', 'registration'].forEach(function (k) { delete data[k]; });
       data.docs = data.docs.filter(function (d) { return d.public; });
       data.entries = data.entries.map(function (e) { return { code: e.code, name: e.name, rankAdj: e.rankAdj }; });
       data.attractions = data.attractions.filter(function (a) { return a.public; }).map(function (a) {
@@ -529,6 +529,12 @@ function mockGetData(cb) {
       }
     }
     if (Q.get('names') === 'none') MOCK.entries.forEach(function (e) { e.name = ''; });
+    // 見本の参加登録（架空）
+    MOCK.registration = [
+      { company: '見本工業(株)', answered: '2026-10-08', sent: '2026-10-27', returned: '2026-10-30', members: '15', teams: '1', bento: '14', allergy: '卵1', capAttend: true, lot: '3', code: 'C' },
+      { company: '見本製作所(株)', answered: '2026-10-12', sent: '2026-10-27', returned: '', members: '', teams: '1', bento: '', capAttend: false },
+      { company: '(有)見本', answered: '2026-10-20', sent: '', returned: '', members: '', teams: '1', bento: '', capAttend: false, note: '個人参加2名と合同' }
+    ];
     done();
   };
   s.onerror = function () { onError({ message: 'preview/seed_data.js が見つかりません' }); };
@@ -1519,7 +1525,7 @@ function viewDocs() {
   var mode = D.staff ? DOC_MODE : 'docs';
   if (mode === 'docs') h += docsList();
   if (mode === 'equip') h += equipView();
-  if (mode === 'entries') h += entriesView();
+  if (mode === 'entries') h += registrationView() + entriesView();
   if (mode === 'budget') h += budgetView();
   return h;
 }
@@ -1553,6 +1559,30 @@ function equipView() {
           '<span class="ck ' + (q.checked ? 'on' : 'off') + '">現物</span> <span class="ck ' + (q.loaded ? 'on' : 'off') + '">積込</span></div></div>';
       }).join('') + '</div></details>';
   }).join('');
+}
+/** 参加登録（企業ごとの申込・登録用紙・弁当・キャプテン会議の受付）の集計。スプシの「参加登録」シート */
+function registrationView() {
+  var R = D.registration || [];
+  if (!R.length) return '<h2 class="sec">参加登録</h2><div class="empty">スプシの「参加登録」シートに企業名を入れると、ここに集計が出ます</div>';
+  var n = function (v) { return +v || 0; };
+  var sum = function (k) { return R.reduce(function (a, r) { return a + n(r[k]); }, 0); };
+  var cnt = function (f) { return R.filter(f).length; };
+  var kpi = function (num, label) { return '<div class="kpi" style="cursor:default"><div class="n">' + num + '</div><div class="t">' + label + '</div></div>'; };
+  var h = '<h2 class="sec">参加登録（' + R.length + '社）</h2><div class="kpis">' +
+    kpi(cnt(function (r) { return r.returned; }) + '/' + R.length, '登録用紙 回収') +
+    kpi(sum('members'), '選手（人）') +
+    kpi(sum('bento'), '弁当（食）') +
+    kpi(cnt(function (r) { return r.capAttend; }) + '/' + R.length, 'キャプテン会議 出席') + '</div>';
+  var mark = function (ok, yes, no) { return ok ? '<span class="st st-完了">' + yes + '</span>' : '<span class="st st-未着手">' + no + '</span>'; };
+  h += '<div class="card scroll-x" style="padding:6px 10px"><table class="grid"><thead><tr><th class="l">企業</th><th>登録用紙</th><th>人数</th><th>弁当</th><th>CAP会議</th><th>記号</th></tr></thead><tbody>' +
+    R.map(function (r) {
+      return '<tr><td class="l">' + esc(r.company) + (r.note ? '<div class="muted">' + esc(r.note) + '</div>' : '') + '</td>' +
+        '<td>' + mark(r.returned, '回収 ' + esc(/^\d{4}-\d\d-\d\d$/.test(r.returned) ? md(r.returned) : r.returned), r.sent ? '送付済' : '未送付') + '</td>' +
+        '<td>' + esc(r.members) + '</td><td>' + esc(r.bento) + (r.allergy ? '<div class="muted">' + esc(r.allergy) + '</div>' : '') + '</td>' +
+        '<td>' + (r.capAttend ? '✓' : '') + (r.lot ? '<div class="muted">くじ' + esc(r.lot) + '</div>' : '') + '</td><td>' + esc(r.code) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="muted">数字はスプシの「参加登録」シートで入力。連絡先・代表者名は載せていません。</div>';
+  return h;
 }
 function entriesView() {
   var cols = [['members', '人数'], ['towel', 'タオル追加'], ['cars', '駐車'], ['bento', '弁当']];
