@@ -39,6 +39,8 @@
   header.top h1 { font-size: 16px; margin: 0; flex: 1; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   header.top .mode { font-size: 11px; background: #ffd43b; color: #5c3d00; border-radius: 6px; padding: 1px 6px; font-weight: 800; }
   header.top .mode.practice { background: #fa5252; color: #fff; }
+  .drive-link { display: block; padding: 8px 0; border-top: 1px solid var(--line); color: var(--brand); font-size: 14px; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+  .drive-link::after { content: " →"; color: var(--sub); }
   .stale-bar { margin: 0 -16px; padding: 4px 16px; background: #f1f3f5; color: var(--sub); font-size: 12px; text-align: center; }
   .practice-bar { margin: 0 -16px; padding: 8px 16px; background: #fff0f0; color: #c92a2a; border-bottom: 2px solid #fa5252;
     font-size: 13px; font-weight: 800; text-align: center; }
@@ -466,7 +468,7 @@ function onData(data) {
   D.teamColor = {};
   D.teamLeader = {};
   ['tasks', 'teams', 'assignments', 'roles', 'equipment', 'budget', 'entries', 'matches', 'finals', 'docs', 'timeline',
-   'attractions', 'attractionRecords', 'registration'].forEach(function (k) { D[k] = D[k] || []; });
+   'attractions', 'attractionRecords', 'registration', 'driveLinks'].forEach(function (k) { D[k] = D[k] || []; });
   D.teams.forEach(function (t, i) { D.teamColor[t.name] = TEAM_COLORS[i % TEAM_COLORS.length]; D.teamLeader[t.name] = t.leader; });
   D.tasks.forEach(function (t) { t.date = normDate(t.date); t.phase = phaseOf(t.date); });
   PRELIM_MIN = +D.settings.prelimMin || PRELIM_MIN;
@@ -497,7 +499,7 @@ function mockGetData(cb) {
     data.fetchedAt = '見本データ';
     if (!staff) {
       delete data.settings.staffNotice;
-      ['teams', 'tasks', 'assignments', 'roles', 'equipment', 'budget', 'registration'].forEach(function (k) { delete data[k]; });
+      ['teams', 'tasks', 'assignments', 'roles', 'equipment', 'budget', 'registration', 'driveLinks'].forEach(function (k) { delete data[k]; });
       data.docs = data.docs.filter(function (d) { return d.public; });
       data.entries = data.entries.map(function (e) { return { code: e.code, name: e.name, rankAdj: e.rankAdj }; });
       data.attractions = data.attractions.filter(function (a) { return a.public; }).map(function (a) {
@@ -534,6 +536,11 @@ function mockGetData(cb) {
       { company: '見本工業(株)', answered: '2026-10-08', sent: '2026-10-27', returned: '2026-10-30', members: '15', teams: '1', bento: '14', allergy: '卵1', capAttend: true, lot: '3', code: 'C' },
       { company: '見本製作所(株)', answered: '2026-10-12', sent: '2026-10-27', returned: '', members: '', teams: '1', bento: '', capAttend: false },
       { company: '(有)見本', answered: '2026-10-20', sent: '', returned: '', members: '', teams: '1', bento: '', capAttend: false, note: '個人参加2名と合同' }
+    ];
+    MOCK.driveLinks = [ // 見本の資料リンク
+      { folder: '03.メンバー登録・弁当注文', name: '【たたき】【要返信】第38回ソフトボール大会メンバー登録用紙.docx', url: '#' },
+      { folder: '04.キャプテン会議資料', name: '【たたき】キャプテン会議司会原稿.docx', url: '#' },
+      { folder: '', name: '第38回ソフトボール大会_総合資料.xlsx', url: '#' }
     ];
     done();
   };
@@ -1540,7 +1547,19 @@ function docsList() {
       (D.staff && !d.public ? ' <span class="chip role">委員のみ</span>' : '') + '</span><span class="chev">▶</span></div></summary>' +
       (d.body ? '<div class="doc-body">' + esc(d.body) + '</div>' : '') +
       (d.link ? '<a class="btn" style="margin-top:10px" href="' + esc(d.link) + '" target="_blank" rel="noopener">開く →</a>' : '') + '</details>';
-  }).join('');
+  }).join('') + driveLinksHtml();
+}
+/** 共有ドライブの資料（委員のみ）。スプシの「資料リンク」シートでチェックしたものを、フォルダごとに出す */
+function driveLinksHtml() {
+  var L = D.driveLinks || [];
+  if (!D.staff || !L.length) return '';
+  var folders = [], by = {};
+  L.forEach(function (x) { var f = x.folder || '（フォルダ直下）'; if (!by[f]) { by[f] = []; folders.push(f); } by[f].push(x); });
+  return '<h2 class="sec">ドライブの資料 <span class="chip role">委員のみ</span></h2>' + folders.map(function (f) {
+    return '<div class="card"><div class="muted" style="font-weight:700;margin-bottom:4px">📁 ' + esc(f) + '</div>' + by[f].map(function (x) {
+      return '<a class="drive-link" href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.name) + '</a>';
+    }).join('') + '</div>';
+  }).join('') + '<div class="muted">共有ドライブを開ける Google アカウントでログインしていると開けます。並びや表示はスプシの「資料リンク」シートで変えられます。</div>';
 }
 function equipView() {
   var cats = [], by = {};
