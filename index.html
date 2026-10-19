@@ -38,12 +38,11 @@
     margin: 0 -16px; padding: 10px 16px; display: flex; align-items: center; gap: 8px; }
   header.top h1 { font-size: 16px; margin: 0; flex: 1; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   header.top .mode { font-size: 11px; background: #ffd43b; color: #5c3d00; border-radius: 6px; padding: 1px 6px; font-weight: 800; }
-  header.top .mode.practice { background: #fa5252; color: #fff; }
   .drive-link { display: block; padding: 8px 0; border-top: 1px solid var(--line); color: var(--brand); font-size: 14px; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
   .drive-link::after { content: " →"; color: var(--sub); }
   .stale-bar { margin: 0 -16px; padding: 4px 16px; background: #f1f3f5; color: var(--sub); font-size: 12px; text-align: center; }
-  .practice-bar { margin: 0 -16px; padding: 8px 16px; background: #fff0f0; color: #c92a2a; border-bottom: 2px solid #fa5252;
-    font-size: 13px; font-weight: 800; text-align: center; }
+  .rehearsal-bar { margin: 0 -16px; padding: 6px 16px; background: #fff4e6; color: #a34700; border-bottom: 1px solid #ffd8a8;
+    font-size: 12px; font-weight: 700; text-align: center; }
   header.top .reload { background: rgba(255,255,255,.18); border: 0; border-radius: 99px; padding: 4px 12px; font-size: 13px; color: #fff; cursor: pointer; }
 
   h2.sec { font-size: 15px; margin: 22px 2px 8px; color: var(--sub); font-weight: 700; display: flex; align-items: center; gap: 6px; }
@@ -228,6 +227,24 @@
   .ck.on { background: var(--done-soft); color: var(--done); }
   .ck.off { background: var(--todo-soft); color: #9aa4b1; }
   .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* 当日タイムスケジュール（行＝時刻、列＝担当者）。名前の行と時刻の列は固定 */
+  .tt-wrap { overflow: auto; max-height: 72vh; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 12px; background: #fff; margin-top: 8px; }
+  table.tt { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+  table.tt th, table.tt td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 6px; vertical-align: top; text-align: left;
+    min-width: 92px; max-width: 124px; line-height: 1.35; background: #fff; }
+  table.tt thead th { position: sticky; top: 0; z-index: 2; background: #f1f5fa; font-size: 13px; }
+  table.tt th.c { position: sticky; left: 0; z-index: 1; min-width: 76px; max-width: 86px; background: #f8fafc; font-weight: 600; }
+  table.tt thead th.c { z-index: 3; }
+  table.tt small { display: block; font-weight: 400; color: var(--sub); font-size: 10px; }
+  table.tt th.c b { color: var(--brand); font-variant-numeric: tabular-nums; font-size: 13px; }
+  table.tt .me { background: var(--brand-soft); }
+  table.tt thead th.me { background: var(--brand); color: #fff; }
+  table.tt thead th.me small { color: #dbe7f5; }
+  table.tt td.empty { background: #fafbfc; }
+  table.tt tr.now td, table.tt tr.now th.c { background: var(--now); }
+  table.tt tr.now td.me { background: #ffe8a1; }
+  table.tt tr.now th.c b::after { content: "いま"; display: block; width: 32px; font-size: 10px; background: var(--accent); color: #fff; border-radius: 4px; text-align: center; margin-top: 2px; }
+  table.tt tr.past td { color: #adb5bd; }
   table.grid { border-collapse: collapse; font-size: 13px; min-width: 100%; }
   table.grid th, table.grid td { padding: 7px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: right; }
   table.grid th { font-size: 11px; color: var(--sub); }
@@ -327,7 +344,7 @@
     <span class="mode" id="modeBadge" hidden>委員用</span>
     <button class="reload" id="reloadBtn" type="button">更新</button>
   </header>
-  <div class="practice-bar" id="practiceBar" hidden>練習モード：入れた点数は本番の順位・結果には入りません</div>
+  <div class="rehearsal-bar" id="rehearsalBar" hidden></div>
   <div class="stale-bar" id="staleBar" hidden></div>
   <main id="view"><div class="loading"><div class="spinner"></div>読み込み中…</div></main>
 </div>
@@ -343,8 +360,6 @@ if (DEBUG_TODAY.indexOf('<' + '?') === 0) DEBUG_TODAY = Q.get('today') || '';
 if (STAFF_KEY.indexOf('<' + '?') === 0) STAFF_KEY = Q.get('k') || '';
 if (VIEW.indexOf('<' + '?') === 0) VIEW = Q.get('v') === 'live' ? 'live' : '';
 var DEBUG_TIME = Q.get('time') || '';
-// 練習モード（URLの &practice=1）。試合の点数は練習用シートに入り、本番の順位・結果には入らない
-var PRACTICE = Q.get('practice') === '1';
 var IS_GAS = !!(window.google && google.script && google.script.run);
 // GitHub Pages など Google の外に置いた画面は、ウェブアプリ（doPost）にデータを取りに行く。
 // script.google.com の画面は、複数の Google アカウントにログインしていると URL に u/数字 が付いて開けないため
@@ -354,10 +369,8 @@ var ONLINE = IS_GAS || USE_API; // false のときは preview/seed_data.js の�
 
 var D = null;          // 取得したデータ
 var TAB = 'home';
-var PROG_MODE = 'team';
 var GAME_MODE = 'rounds';
 var DOC_MODE = 'docs';
-var BUDGET_PLAN = '';
 var SAVING = false;
 var STORE_KEY = 'softball_me';
 var TEAM_KEY = 'softball_team';
@@ -379,7 +392,7 @@ var ICONS = {
   day: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   docs: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>'
 };
-var TAB_LABEL = { home: 'ホーム', progress: '進捗', games: '試合', event: 'イベント', day: '当日', docs: '資料',
+var TAB_LABEL = { home: 'ホーム', progress: '工程表', games: '試合', event: 'イベント', day: '当日', docs: '資料',
   now: '速報', rounds: '対戦表', table: '順位表', final: '決勝', team: 'チーム別' };
 ICONS.now = '<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/>';
 ICONS.rounds = '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>';
@@ -390,8 +403,8 @@ var RF = {};           // アトラクション記録の入力中の内容 {ア�
 
 /* ---------- データ取得 ---------- */
 // 前回のデータをこのスマホに残しておき、次に開いたときはそれをすぐ表示して、裏で最新に入れ替える
-// （サーバーの読み込みは数秒〜10秒ほどかかることがあるため）。委員用・練習用・参加者用で分けて残す
-var SNAP_KEY = 'softball_snap_' + (STAFF_KEY ? 'staff' : 'pub') + (PRACTICE ? '_practice' : '');
+// （サーバーの読み込みは数秒〜10秒ほどかかることがあるため）。委員用・参加者用で分けて残す
+var SNAP_KEY = 'softball_snap_' + (STAFF_KEY ? 'staff' : 'pub');
 var STALE = false;     // 前回のデータを表示中（最新の取得中）
 function saveSnap(data) {
   try { localStorage.setItem(SNAP_KEY, JSON.stringify({ at: Date.now(), data: data })); } catch (e) { /* 残せなくても動く */ }
@@ -417,7 +430,7 @@ function load(silent) {
   } else if (!silent) {
     document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
   }
-  server('getData', [STAFF_KEY, PRACTICE], function (data) {
+  server('getData', [STAFF_KEY], function (data) {
     saveSnap(data);
     STALE = false;
     showStale('');
@@ -429,7 +442,7 @@ function load(silent) {
 }
 /** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる */
 function loadLive() {
-  if (ONLINE) server('getLive', [STAFF_KEY, PRACTICE], onLive, function () {});
+  if (ONLINE) server('getLive', [STAFF_KEY], onLive, function () {});
   else mockGetData(onLive);
 }
 function onLive(d) {
@@ -480,10 +493,12 @@ function onData(data) {
     if (isEventDay() && !Q.get('tab') && VIEW !== 'live') { TAB = 'games'; GAME_MODE = 'now'; }
   }
   var badge = document.getElementById('modeBadge');
-  badge.hidden = !D.staff && !PRACTICE;
-  badge.textContent = PRACTICE ? '練習' : '委員用';
-  badge.classList.toggle('practice', PRACTICE);
-  document.getElementById('practiceBar').hidden = !PRACTICE;
+  badge.hidden = !D.staff;
+  badge.textContent = '委員用';
+  // 大会の前日までは、委員が入れた点数・記録は練習（参加者用には出ない）
+  var bar = document.getElementById('rehearsalBar');
+  bar.hidden = !(D.staff && rehearsal());
+  bar.textContent = '前日までは練習です。点数・記録は自由に入れてOK（参加者には見えません）';
   buildTabs();
   render();
 }
@@ -507,6 +522,13 @@ function mockGetData(cb) {
       });
       var shown = data.attractions.map(function (a) { return a.id; });
       data.attractionRecords = data.attractionRecords.filter(function (r) { return shown.indexOf(r.attrId) >= 0; });
+    }
+    if (!staff && todayStr() < normDate(data.settings.eventDate)) { // サーバーの hideRehearsal_ と同じ
+      data.matches.concat(data.finals).forEach(function (m) {
+        if (isBye(m)) return;
+        ['s1', 's3', 'winnerAdj', 'by', 'at', 'status', 'inning', 'updatedAt', 'top', 'startedAt'].forEach(function (k) { m[k] = ''; });
+      });
+      data.attractionRecords = [];
     }
     cb(data);
   }
@@ -547,13 +569,14 @@ function mockGetData(cb) {
   s.onerror = function () { onError({ message: 'preview/seed_data.js が見つかりません' }); };
   document.head.appendChild(s);
 }
-/* 見本データで「練習の点数を全部消す」をまねる */
-function mockResetPractice() {
+/* 見本データで「記録をまっさらにする」をまねる */
+function mockClearRecords(cb) {
   MOCK.matches.concat(MOCK.finals).forEach(function (m) {
     if (m.third === '不戦' || m.first === '不戦') return;
     m.s1 = ''; m.s3 = ''; m.by = ''; m.at = ''; m.status = ''; m.inning = ''; m.top = ''; m.winnerAdj = ''; m.startedAt = '';
   });
-  mockGetData(function (d) { LIVE_BUSY = 0; onLive(d); });
+  MOCK.attractionRecords = [];
+  mockGetData(cb);
 }
 /* 見本データで記録係の操作をまねる（サーバーの liveUpdate と同じ動き） */
 function mockLiveUpdate(kind, id, op, arg, who) {
@@ -590,6 +613,35 @@ function todayStr() {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 function isEventDay() { return D && todayStr() === D.eventDate; }
+/** 大会当日になったら、準備（工程表）は表示しない */
+function prepOver() { return todayStr() >= D.eventDate; }
+/** 大会の前日まで：委員が入れた点数・記録は練習（参加者用には出ない） */
+function rehearsal() { return todayStr() < D.eventDate; }
+/** 大会当日に、前日までの練習の点数・記録が残っているか（入力時刻が今日でないもの） */
+function leftoverRecords() {
+  var t = toD(todayStr()), md0 = (t.getMonth() + 1) + '/' + t.getDate() + ' ';
+  var old = function (x) { return x.at && String(x.at).indexOf(md0) !== 0; };
+  return D.matches.concat(D.finals).filter(function (m) { return !isBye(m) && (m.status || m.s1 !== '' && m.s1 != null) && old(m); }).length +
+    D.attractionRecords.filter(old).length;
+}
+/** 委員用：前日までは「記録をまっさらにする」ボタン、当日に練習の記録が残っていたら警告 */
+function clearCard() {
+  if (!D.staff) return '';
+  if (rehearsal()) {
+    return '<div class="card" style="margin-top:16px"><b>練習が終わったら</b><div class="muted">全試合の点数・状態と、アトラクションの記録を全部消して、試合前に戻します（組み合わせ・チーム名は残ります）。' +
+      '大会当日の朝までに、最後に必ず1回押してください。</div>' +
+      '<div class="btns"><button class="btn warn" id="clearRecords"' + (SAVING ? ' disabled' : '') + '>' +
+      (SAVING ? '消しています…' : '記録をまっさらにする') + '</button></div></div>';
+  }
+  var n = isEventDay() ? leftoverRecords() : 0;
+  return n ? '<div class="info" style="background:var(--late-soft);color:var(--late)"><b>⚠ 前日までの練習の点数・記録が ' + n + ' 件残っています</b><br>' +
+    '試合を始める前に、スプシのメニュー「🥎 アプリ管理 → 記録をまっさらにする」で消してください（大会中に誤って消さないよう、当日はアプリからは消せません）。</div>' : '';
+}
+/** キャプテン会議の日（予定シートの「キャプテン会議」）。会議の資料はこの日まで表示する */
+function capMeetingDate() {
+  var t = D.tasks.filter(function (x) { return x.kind === '会議' && x.title === 'キャプテン会議'; })[0];
+  return t ? t.date : '';
+}
 function toD(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
 function diffDays(a, b) { return Math.round((toD(b) - toD(a)) / 86400000); } // b - a
 function md(s) { var d = toD(s); return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')'; }
@@ -644,7 +696,6 @@ function setMe(v) { store(STORE_KEY, v); }
 
 /* ---------- 共通部品 ---------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-function yen(n) { return '¥' + Number(n || 0).toLocaleString('ja-JP'); }
 function isLate(t) { return t.status !== '完了' && t.kind !== '会議' && t.kind !== '当日' && t.date < todayStr(); }
 function statusBadge(t) {
   if (isLate(t)) return '<span class="st st-late">遅れ</span>';
@@ -982,7 +1033,8 @@ function gamesTeam(S) {
 
 /* ================================================================ 画面切り替え */
 function tabsFor() {
-  return D.staff ? ['home', 'progress', 'games', 'event', 'day', 'docs'] : ['home', 'games', 'event', 'day', 'docs'];
+  if (!D.staff) return ['home', 'games', 'event', 'day', 'docs'];
+  return prepOver() ? ['home', 'games', 'event', 'day', 'docs'] : ['home', 'progress', 'games', 'event', 'day', 'docs'];
 }
 function buildTabs() {
   if (tabsFor().indexOf(TAB) < 0) TAB = tabsFor()[0];
@@ -1024,6 +1076,7 @@ function viewHome() {
     (reserve && n >= 0 ? '<br>予備日 ' + md(reserve) + '（雨天のとき）' : '') + '</div></div>';
   if (s.notice) h += '<div class="notice">📢 ' + esc(s.notice) + '</div>';
   if (D.staff && s.staffNotice) h += '<div class="notice">🔒 委員向け：' + esc(s.staffNotice) + '</div>';
+  if (isEventDay()) h += clearCard();
 
   if (n <= 0 && D.matches.length) h += homeGames();
   h += homeAttractions(n);
@@ -1078,6 +1131,7 @@ function viewNow() {
   var board = groundBoard(), rec = D.staff, my = store(LIVE_GROUND_KEY);
   var h = '<div class="live-head"><b>' + (rec ? '⚾ 試合の記録・速報' : '⚾ 試合速報') + '</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') + '</span></div>';
   h += noNamesInfo();
+  if (isEventDay()) h += clearCard(); // 当日：練習の記録が残っていたら、いちばん上に警告
   if (rec) {
     h += '<div class="rec-bar">記録係：担当グラウンド <select id="groundSel"><option value="">見るだけ（入力しない）</option>' +
       board.map(function (b) { return '<option value="' + esc(b.ground) + '"' + (b.ground === my ? ' selected' : '') + '>' + esc(ground(b.ground)) + '</option>'; }).join('') +
@@ -1090,26 +1144,17 @@ function viewNow() {
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
   h += shown.map(function (b) { return nowCard(b, rec && !!my); }).join('');
   if (rec && my) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「見るだけ」に戻してください。</div>';
-  if (PRACTICE && rec) {
-    h += '<div class="card" style="margin-top:16px"><b>練習が終わったら</b><div class="muted">全グラウンドの練習の点数を消して、全試合を試合前に戻します（本番のデータには影響しません）。</div>' +
-      '<div class="btns"><button class="btn warn" id="resetPractice"' + (SAVING ? ' disabled' : '') + '>' +
-      (SAVING ? '消しています…' : '練習の点数を全部消す') + '</button></div></div>';
-  }
+  if (rehearsal()) h += clearCard();
   return h;
 }
-/** 練習モード：練習の点数を全部消す（本番のシートには触らない） */
-function resetPractice() {
-  if (!PRACTICE || SAVING || !confirm('練習の点数を全部消して、全試合を試合前に戻しますか？\n（本番のデータには影響しません）')) return;
+/** 前日まで：練習の点数・アトラクションの記録を全部消す（組み合わせ・チーム名は残す） */
+function clearRecords() {
+  if (SAVING || !confirm('全試合の点数・状態と、アトラクションの記録を全部消して、試合前に戻しますか？\n（組み合わせ・チーム名は残ります）')) return;
   SAVING = true; LIVE_BUSY++; render();
-  var done = function (d) { SAVING = false; LIVE_BUSY = 0; onLive(d); toast('練習の点数を消しました'); };
-  if (ONLINE) {
-    server('resetPractice', [STAFF_KEY], done, function (e) {
-      SAVING = false; LIVE_BUSY = 0; render(); alert('消せませんでした：' + (e && e.message || e));
-    });
-  } else {
-    mockResetPractice();
-    SAVING = false; toast('練習の点数を消しました');
-  }
+  var done = function (d) { SAVING = false; LIVE_BUSY = 0; onData(d); toast('記録を消しました'); };
+  var ng = function (e) { SAVING = false; LIVE_BUSY = 0; render(); alert('消せませんでした：' + (e && e.message || e)); };
+  if (ONLINE) server('clearRecords', [STAFF_KEY], done, ng);
+  else mockClearRecords(done);
 }
 function nowCard(b, canRec) {
   var x = b.cur, h = '<div class="now-card' + (x && isLive(x.m) ? ' on' : '') + '"><div class="now-top"><span class="gname">' + esc(ground(b.ground)) + '</span>';
@@ -1223,7 +1268,7 @@ function liveOp(el) {
   LIVE_BUSY++;
   var who = getMe() || '記録係';
   if (ONLINE) {
-    server('liveUpdate', [STAFF_KEY, kind, id, op, arg, who, PRACTICE], function (d) {
+    server('liveUpdate', [STAFF_KEY, kind, id, op, arg, who], function (d) {
       LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
       if (!LIVE_BUSY) onLive(d); // 連打中は最後の結果だけ反映
     }, function (e) {
@@ -1253,6 +1298,7 @@ function homeAttractions(n) {
 }
 function homeStaff(today) {
   var h = '';
+  if (prepOver()) return h; // 大会当日からは準備（工程表）の欄を出さない
   var late = D.tasks.filter(isLate);
   var prepLeft = D.tasks.filter(function (t) { return (t.roles || []).length && t.status !== '完了' && t.date <= D.eventDate; });
   h += '<div class="kpis">' +
@@ -1277,34 +1323,13 @@ function homeStaff(today) {
 
 /* ---------- 進捗（委員のみ） ---------- */
 function viewProgress() {
-  var h = seg('prog', PROG_MODE, [['team', '担当別'], ['date', '日付順（工程表）']]);
+  var h = '';
   var late = D.tasks.filter(isLate);
   if (late.length) {
     h += '<h2 class="sec" id="late">⚠ 期限を過ぎて未完了 <span class="count">' + late.length + '</span></h2><div class="card">' +
       late.map(function (t) { return taskRow(t, { showDate: true }); }).join('') + '</div>';
   }
-  return h + (PROG_MODE === 'team' ? progressByTeam() : progressByDate());
-}
-function progressByTeam() {
-  return '<h2 class="sec">担当ごとの進捗</h2>' + D.teams.map(function (tm) {
-    var list = D.tasks.filter(function (t) { return t.team === tm.name && t.kind !== '会議'; });
-    var done = list.filter(function (t) { return t.status === '完了'; }).length;
-    var pct = list.length ? Math.round(done / list.length * 100) : 0;
-    var lateN = list.filter(isLate).length;
-    var nextT = list.filter(function (t) { return t.status !== '完了'; })[0];
-    var dl = [['内容', tm.content], ['成果物', tm.deliverables], ['委員会での報告', tm.reportTiming], ['メンバー', tm.members], ['進捗メモ', tm.memo], ['更新日', tm.updated]]
-      .filter(function (x) { return x[1]; }).map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('');
-    return '<details class="card acc"><summary>' +
-      '<div class="team-head"><span class="dot" style="background:' + D.teamColor[tm.name] + '"></span>' +
-      '<span class="name">' + esc(tm.name) + '</span><span class="leader">' + (tm.leader ? esc(tm.leader) : '<span class="tbd">担当未定</span>') + '</span>' +
-      '<span class="st st-' + esc(tm.status) + '">' + esc(tm.status) + '</span><span class="chev">▶</span></div>' +
-      '<div class="progress"><i style="width:' + pct + '%"></i></div>' +
-      '<div class="prog-label"><span>' + (nextT ? '次：' + md(nextT.date) + ' ' + esc(nextT.title) : (list.length ? 'すべて完了' : '予定なし')) + '</span>' +
-      '<span style="white-space:nowrap">' + (lateN ? '<b style="color:var(--late)">遅れ' + lateN + '</b>　' : '') + done + '/' + list.length + '</span></div>' +
-      '</summary><div class="detail"><dl style="margin:0">' + dl + '</dl>' +
-      (list.length ? '<dt style="font-size:12px;color:var(--sub);font-weight:700;margin-top:10px">予定</dt>' + list.map(function (t) { return taskRow(t, { showDate: true }); }).join('') : '') +
-      '</div></details>';
-  }).join('');
+  return h + '<h2 class="sec">工程表（日付順）</h2><div class="muted">総合資料（Excel）の「工程表」から取り込んでいます。大会当日からは表示しません。</div>' + progressByDate();
 }
 function progressByDate() {
   var h = '';
@@ -1330,7 +1355,11 @@ function viewDay() {
       names.map(function (n) { return '<option' + (n === me ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select>';
     if (me) h += myPlan(me);
   }
-  h += '<h2 class="sec">当日の流れ（' + md(D.eventDate) + '）</h2><div class="card">' + timelineHtml(null) + '</div>';
+  if (D.staff && D.assignments.some(function (a) { return a.name; })) {
+    h += '<h2 class="sec">当日タイムスケジュール（' + md(D.eventDate) + '）</h2>' + scheduleGrid();
+  } else {
+    h += '<h2 class="sec">当日の流れ（' + md(D.eventDate) + '）</h2><div class="card">' + timelineHtml(null) + '</div>';
+  }
   if (D.entries.length) {
     h += '<h2 class="sec">開会式の整列順（8:25〜）</h2><div class="card"><ol class="line-up">' +
       D.entries.map(function (e) { return '<li>' + teamHtml(e.code) + '</li>'; }).join('') + '<li>大会実行委員会</li></ol></div>';
@@ -1347,19 +1376,22 @@ function myPlan(me) {
   });
   var before = mine.filter(function (t) { return t.phase === '準備期間' || t.phase === '直前週'; });
   var eve = mine.filter(function (t) { return t.phase === '前日'; });
-  var asg = D.assignments.filter(function (a) { return surname(a.name) === surname(me); })[0];
+  var asg = D.assignments.filter(function (a) { return surname(a.name.replace(/[（(].*$/, '')) === surname(me); })[0];
+  var over = prepOver(); // 大会当日からは「当日の動き」だけ
 
   var h = '<div class="card" style="margin-top:10px">';
   h += '<div style="font-weight:800;font-size:17px">' + esc(me) + ' さん</div>';
   h += '<div class="chips" style="margin-top:6px">' + (myRoles.length ? myRoles.map(function (r) { return '<span class="chip role">' + esc(r.role) + '</span>'; }).join('') :
     '<span class="muted">当日役割はまだ割り当てられていません</span>') + '</div>';
   var openBefore = before.filter(function (t) { return t.status !== '完了'; });
+  if (!over) {
   h += '<div class="step"><span class="num">1</span>当日までの準備 <span class="left-badge' + (openBefore.length ? '' : ' ok') + '">' +
     (openBefore.length ? '残り' + openBefore.length : 'すべて完了') + '</span></div>';
   h += before.length ? before.map(function (t) { return taskRow(t, { showDate: true }); }).join('') : '<div class="empty">ありません</div>';
   h += '<div class="step"><span class="num">2</span>前日（' + md(phaseDay(-1)) + '）にやること</div>';
   h += eve.length ? eve.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">ありません</div>';
-  h += '<div class="step"><span class="num">3</span>当日の動き</div>';
+  }
+  h += '<div class="step"><span class="num">' + (over ? 1 : 3) + '</span>当日の動き</div>';
   if (asg) {
     if (asg.note) h += '<div class="muted" style="margin-bottom:4px">備考：' + esc(asg.note) + '</div>';
     h += timelineHtml(asg);
@@ -1385,9 +1417,32 @@ function timelineHtml(asg) {
     return '<div class="' + cls + '"' + (i === nowIdx && !asg ? ' id="nowSlot"' : '') + '><div class="time">' + esc(s.time) + '</div><div>' + body + '</div></div>';
   }).join('');
 }
+/** 当日タイムスケジュール（全員）：行＝時刻、列＝担当者。当日は今の時刻の行に色、自分の列を強調 */
+function scheduleGrid() {
+  var A = D.assignments.filter(function (a) { return a.name; });
+  var me = getMe(), isDay = isEventDay(), now = nowMinutes(), nowIdx = -1;
+  if (isDay) D.timeline.forEach(function (s, i) { var m = slotMinutes(s.time); if (m !== null && m <= now) nowIdx = i; });
+  var mine = function (a) { return !!me && surname(a.name.replace(/[（(].*$/, '')) === surname(me); };
+  var head = '<tr><th class="c">時刻</th>' + A.map(function (a) {
+    var m = a.name.match(/^(.+?)[（(](.+)[）)]$/);
+    return '<th class="' + (mine(a) ? 'me' : '') + '">' + esc(m ? m[1] : a.name) + (m ? '<small>' + esc(m[2]) + '</small>' : '') +
+      (a.note ? '<small>' + esc(a.note) + '</small>' : '') + '</th>';
+  }).join('') + '</tr>';
+  var body = D.timeline.map(function (s, i) {
+    var cls = (i === nowIdx ? 'now' : '') + (isDay && nowIdx >= 0 && i < nowIdx && slotMinutes(s.time) !== null ? ' past' : '');
+    return '<tr class="' + cls + '"' + (i === nowIdx ? ' id="nowSlot"' : '') + '><th class="c"><b>' + esc(s.time) + '</b><small>' + esc(s.title) + '</small></th>' +
+      A.map(function (a) {
+        var v = a.slots[i];
+        return '<td class="' + (mine(a) ? 'me' : '') + (v ? '' : ' empty') + '">' + esc(v || '') + '</td>';
+      }).join('') + '</tr>';
+  }).join('');
+  return '<div class="tt-wrap"><table class="tt"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+    '<div class="muted">横にスクロールすると全員分が見られます。上で名前を選ぶと、自分の列に色が付きます。' +
+    '中身は総合資料（Excel）の「当日タイムスケジュール」から取り込んでいます。</div>';
+}
 function rolesHtml() {
   return D.roles.map(function (r) {
-    var prep = prepFor(r.role), left = prep.filter(function (t) { return t.status !== '完了'; }).length;
+    var prep = prepOver() ? [] : prepFor(r.role), left = prep.filter(function (t) { return t.status !== '完了'; }).length;
     var dl = [['内容', r.content], ['備考', r.note], ['前回の担当（参考）', r.prev]].filter(function (x) { return x[1]; })
       .map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('');
     return '<details class="card acc"><summary><div class="role-row"><span class="r">' + esc(r.role) + '</span>' +
@@ -1429,8 +1484,9 @@ function rankRows(a, list, del) {
 function viewEvent() {
   if (!D.attractions.length) return '<h2 class="sec">アトラクション</h2><div class="empty">アトラクションはまだ登録されていません</div>';
   var h = '<h2 class="sec">アトラクション</h2>';
+  if (isEventDay()) h += clearCard();
   if (D.staff) h += '<datalist id="teamList">' + D.entries.map(function (e) { return '<option value="' + esc(e.name || e.code) + '">'; }).join('') + '</datalist>';
-  return h + D.attractions.map(attrCard).join('');
+  return h + D.attractions.map(attrCard).join('') + (rehearsal() ? clearCard() : '');
 }
 /** アトラクションのカード：サラッと（名前・時間・場所・ひとこと＋上位5人） */
 function attrCard(a) {
@@ -1528,17 +1584,20 @@ function typingRecord() {
 /* ---------- 資料 ---------- */
 function viewDocs() {
   var h = '';
-  if (D.staff) h += seg('doc', DOC_MODE, [['docs', '資料'], ['equip', '備品'], ['entries', '参加チーム'], ['budget', '予算']]);
+  var modes = [['docs', '資料'], ['equip', '備品'], ['entries', '参加チーム']];
+  if (!modes.some(function (m) { return m[0] === DOC_MODE; })) DOC_MODE = 'docs';
+  if (D.staff) h += seg('doc', DOC_MODE, modes);
   var mode = D.staff ? DOC_MODE : 'docs';
   if (mode === 'docs') h += docsList();
   if (mode === 'equip') h += equipView();
   if (mode === 'entries') h += registrationView() + entriesView();
-  if (mode === 'budget') h += budgetView();
   return h;
 }
 function docsList() {
   var order = ['雨天', '緊急', '当日', 'ルール', '保険', '会議'];
-  var docs = D.docs.slice().sort(function (a, b) {
+  // キャプテン会議の資料（区分「会議」）は、キャプテン会議の日まで
+  var cap = capMeetingDate(), hideMeet = !!cap && todayStr() > cap;
+  var docs = D.docs.filter(function (d) { return !(hideMeet && d.category === '会議'); }).sort(function (a, b) {
     var x = order.indexOf(a.category), y = order.indexOf(b.category);
     return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
   });
@@ -1617,25 +1676,6 @@ function entriesView() {
     '<tr class="sum"><td class="l">合計</td>' + cols.map(function (c) { return '<td>' + sum[c[0]] + '</td>'; }).join('') + '</tr></tbody></table></div>' +
     '<div class="muted">数字はスプシの「参加チーム」シートで入力。チーム代表者名や連絡先は載せていません。</div>';
 }
-function budgetView() {
-  var plans = [];
-  D.budget.forEach(function (b) { if (plans.indexOf(b.plan) < 0) plans.push(b.plan); });
-  if (!plans.length) return '<div class="empty">予算は登録されていません</div>';
-  if (plans.indexOf(BUDGET_PLAN) < 0) BUDGET_PLAN = plans[0];
-  var h = seg('plan', BUDGET_PLAN, plans.map(function (p) { return [p, p]; }));
-  var tot = {};
-  ['収入', '支出'].forEach(function (side) {
-    var list = D.budget.filter(function (b) { return b.plan === BUDGET_PLAN && b.side === side; });
-    tot[side] = list.reduce(function (s, b) { return s + (+b.amount || 0); }, 0);
-    h += '<h2 class="sec">' + side + '</h2><div class="card">' + list.map(function (b) {
-      return '<div class="money"><div class="it">' + esc(b.item) + (b.note ? '<div class="muted">' + esc(b.note) + '</div>' : '') + '</div><div class="am">' + yen(b.amount) + '</div></div>';
-    }).join('') + '<div class="money total"><div class="it">' + side + '合計</div><div class="am">' + yen(tot[side]) + '</div></div></div>';
-  });
-  var diff = tot['収入'] - tot['支出'];
-  h += '<div class="card"><div class="money total" style="border-top:0"><div class="it">収支差額</div><div class="am" style="color:' + (diff < 0 ? 'var(--late)' : 'var(--done)') + '">' + yen(diff) + '</div></div></div>';
-  return h;
-}
-
 /* ================================================================ イベント */
 function bindView() {
   var v = document.getElementById('view');
@@ -1643,12 +1683,9 @@ function bindView() {
   v.querySelectorAll('[data-seg]').forEach(function (b) {
     b.onclick = function () {
       var k = b.dataset.seg, val = b.dataset.val;
-      if (k === 'prog') PROG_MODE = val;
       if (k === 'game') { GAME_MODE = val; if (val === 'now') loadLive(); }
       if (k === 'doc') DOC_MODE = val;
-      if (k === 'plan') BUDGET_PLAN = val;
       render();
-      if (k === 'prog' && val === 'date') jumpToCurrentPhase();
     };
   });
   var sel = document.getElementById('meSel');
@@ -1674,15 +1711,11 @@ function bindView() {
   v.querySelectorAll('[data-live]').forEach(function (b) { b.onclick = function () { liveOp(b); }; });
   var gs = document.getElementById('groundSel');
   if (gs) gs.onchange = function () { store(LIVE_GROUND_KEY, gs.value); render(); };
-  var rp = document.getElementById('resetPractice');
-  if (rp) rp.onclick = resetPractice;
+  var cr = document.getElementById('clearRecords');
+  if (cr) cr.onclick = clearRecords;
   v.querySelectorAll('[data-delrec]').forEach(function (b) { b.onclick = function () { delRec(b.dataset.delrec); }; });
 }
 function onSaved(data) { SAVING = false; onData(data); toast('保存しました'); }
-function jumpToCurrentPhase() {
-  var el = document.getElementById('phase-' + phaseOf(todayStr()));
-  if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -56); }
-}
 document.getElementById('reloadBtn').onclick = function () { load(); };
 
 // 当日・試合タブは1分ごとに自動更新（入力中は止める）
