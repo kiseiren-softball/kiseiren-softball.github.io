@@ -1641,7 +1641,7 @@ function equipView() {
 /** 参加登録（企業ごとの申込・登録用紙・弁当・キャプテン会議の受付）の集計。スプシの「参加登録」シート */
 function registrationView() {
   var R = D.registration || [];
-  if (!R.length) return '<h2 class="sec">参加登録</h2><div class="empty">スプシの「参加登録」シートに企業名を入れると、ここに集計が出ます</div>';
+  if (!R.length) return '<h2 class="sec">参加登録</h2><div class="empty">総合資料Excelの「参加企業」シートに企業名を入れて取り込むと、ここに集計が出ます</div>';
   var n = function (v) { return +v || 0; };
   var sum = function (k) { return R.reduce(function (a, r) { return a + n(r[k]); }, 0); };
   var cnt = function (f) { return R.filter(f).length; };
@@ -1659,7 +1659,7 @@ function registrationView() {
         '<td>' + esc(r.members) + '</td><td>' + esc(r.bento) + (r.allergy ? '<div class="muted">' + esc(r.allergy) + '</div>' : '') + '</td>' +
         '<td>' + (r.capAttend ? '✓' : '') + (r.lot ? '<div class="muted">くじ' + esc(r.lot) + '</div>' : '') + '</td><td>' + esc(r.code) + '</td></tr>';
     }).join('') + '</tbody></table></div>' +
-    '<div class="muted">数字はスプシの「参加登録」シートで入力。連絡先・代表者名は載せていません。</div>';
+    '<div class="muted">送付日・回収日・人数などは総合資料Excelの「参加企業」シートで入力（取り込みでここに出ます）。キャプテン会議の出席・くじ順・記号はスプシの「参加登録」シートで入力。連絡先・代表者名は載せていません。</div>';
   return h;
 }
 function entriesView() {
