@@ -335,6 +335,39 @@
 
   .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1c2430; color: #fff; padding: 8px 16px; border-radius: 99px; font-size: 14px; z-index: 20; }
   .foot { text-align: center; font-size: 12px; color: var(--sub); margin: 24px 0 8px; }
+
+  /* ===== PC（幅1024px以上）：左のメニュー、中身は横いっぱい・カードを横に並べる。スマホは上のまま ===== */
+  @media (min-width: 1024px) {
+    .app { max-width: none; margin: 0 0 0 200px; padding: 0 24px 24px; }
+    header.top { margin: 0 -24px; padding: 10px 24px; }
+    .stale-bar, .rehearsal-bar { margin: 0 -24px; }
+    main#view { max-width: 1400px; }
+    nav.tabs { top: 0; bottom: 0; right: auto; width: 200px; border-top: 0; border-right: 1px solid var(--line); flex-direction: column; justify-content: flex-start;
+      padding: 56px 10px 0; }
+    nav.tabs::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 47px; background: var(--brand); }
+    nav.tabs .in { flex-direction: column; gap: 4px; max-width: none; }
+    nav.tabs button { flex: none; flex-direction: row; gap: 10px; padding: 10px 12px; font-size: 15px; border-radius: 10px; }
+    nav.tabs button:hover { background: var(--todo-soft); }
+    nav.tabs button.on { background: var(--brand-soft); }
+    nav.tabs button svg { width: 20px; height: 20px; }
+    .toast { bottom: 24px; }
+    .seg, .rec-bar { max-width: 640px; }
+    .me-select { max-width: 480px; }
+    .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    /* ホーム：左に大会の情報、右に委員の予定（参加者は試合・当日の流れ） */
+    .home-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
+    /* カードを横に並べる（試合の速報・対戦表、イベント、資料、役割など） */
+    .card-grid, .now-grid, .game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+    .game-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .card-grid > *, .now-grid > *, .game-grid > * { margin: 0 !important; }
+    .now-grid, .card-grid { margin-top: 10px; }
+    .now-grid.one { grid-template-columns: minmax(0, 560px); }
+    /* 工程表：日付ごとのまとまりを段組みにする（上から下、左から右の順） */
+    .dg-cols { columns: 3 340px; column-gap: 20px; }
+    .dg { break-inside: avoid; padding-top: 1px; }
+    .tt-wrap { max-height: calc(100vh - 160px); }
+    table.stand, .bracket { max-width: 1000px; }
+  }
 </style>
 </head>
 <body>
@@ -723,11 +756,12 @@ function groupByDate(list) {
   list.forEach(function (t) { if (!cur || cur.date !== t.date) { cur = { date: t.date, items: [] }; out.push(cur); } cur.items.push(t); });
   return out;
 }
-function dateGroupsHtml(list) {
+function dateGroupsHtml(list, wrap) {
   var today = todayStr();
   return groupByDate(list).map(function (g) {
-    return '<div class="day-head' + (g.date === today ? ' today' : '') + '">' + md(g.date) + '<span class="rel">' + relLabel(g.date) + '</span></div>' +
+    var x = '<div class="day-head' + (g.date === today ? ' today' : '') + '">' + md(g.date) + '<span class="rel">' + relLabel(g.date) + '</span></div>' +
       '<div class="card">' + g.items.map(function (t) { return taskRow(t); }).join('') + '</div>';
+    return wrap ? '<div class="dg">' + x + '</div>' : x; // wrap：PCの段組みで日付と中身が離れないように
   }).join('');
 }
 function prepFor(roleName) { return D.tasks.filter(function (t) { return (t.roles || []).indexOf(roleName) >= 0; }); }
@@ -945,7 +979,7 @@ function gamesRounds() {
     var byes = r.list.filter(isBye);
     var done = games.filter(isDone).length;
     return '<div class="round-head" id="round-' + esc(r.round) + '"><b>' + esc(r.round) + '</b><span>' + esc(r.time) + '〜（' + PRELIM_MIN + '分）　' + done + '/' + games.length + '試合終了</span></div>' +
-      games.map(prelimCard).join('') +
+      '<div class="game-grid">' + games.map(prelimCard).join('') + '</div>' +
       byes.map(function (m) { return '<div class="bye">' + teamHtml(m.first === '不戦' ? m.third : m.first) + '：不戦勝（得失点0）</div>'; }).join('');
   }).join('');
 }
@@ -1024,11 +1058,11 @@ function gamesTeam(S) {
   var h = '<select class="me-select" id="teamSel"><option value="">チームを選んでください</option>' +
     D.entries.map(function (e) { return '<option value="' + esc(e.code) + '"' + (e.code === sel ? ' selected' : '') + '>' + esc(e.code + '　' + (e.name || 'チーム' + e.code)) + '</option>'; }).join('') + '</select>';
   var list = sel && entryOf(sel) ? [sel] : D.entries.map(function (e) { return e.code; });
-  return h + list.map(function (c) {
+  return h + '<div class="card-grid" style="margin-top:10px">' + list.map(function (c) {
     var r = S.rows.filter(function (x) { return x.code === c; })[0];
-    return '<div class="card" style="margin-top:10px"><div class="team-head"><span class="name">' + teamHtml(c) + '</span>' +
+    return '<div class="card"><div class="team-head"><span class="name">' + teamHtml(c) + '</span>' +
       (r && S.played ? '<span class="muted">' + r.rank + '位・勝点' + r.pts + '</span>' : '') + '</div>' + teamSchedule(c, S) + '</div>';
-  }).join('');
+  }).join('') + '</div>';
 }
 
 /* ================================================================ 画面切り替え */
@@ -1081,20 +1115,22 @@ function viewHome() {
   if (n <= 0 && D.matches.length) h += homeGames();
   h += homeAttractions(n);
 
-  if (D.staff) h += homeStaff(today);
+  // PCでは左右2列（左＝ここまで、右＝ここから）。スマホは縦に続けて並ぶ
+  var side = '';
+  if (D.staff) side += homeStaff(today);
   else {
-    h += noNamesInfo();
-    h += '<h2 class="sec">試合を見る</h2><div class="card"><div class="btns" style="margin-top:0">' +
+    side += noNamesInfo();
+    side += '<h2 class="sec">試合を見る</h2><div class="card"><div class="btns" style="margin-top:0">' +
       '<button class="btn" data-go="games" data-mode="rounds">対戦表</button><button class="btn ghost" data-go="games" data-mode="table">順位表</button>' +
       '<button class="btn ghost" data-go="games" data-mode="final">決勝トーナメント</button><button class="btn ghost" data-go="games" data-mode="team">自分のチーム</button></div></div>';
     var keys = D.timeline.filter(function (t) { return /集合|開会式|予選第1|準決勝|決勝|表彰式/.test(t.title) && !/実行委員/.test(t.title); });
     if (keys.length) {
-      h += '<h2 class="sec">当日の流れ（' + md(D.eventDate) + '）</h2><div class="card">' + keys.map(function (t) {
+      side += '<h2 class="sec">当日の流れ（' + md(D.eventDate) + '）</h2><div class="card">' + keys.map(function (t) {
         return '<div class="slot"><div class="time">' + esc(t.time) + '</div><div class="what">' + esc(t.title) + '</div></div>';
       }).join('') + '<div class="btns"><button class="btn ghost small" data-go="day">くわしいスケジュール →</button></div></div>';
     }
   }
-  return h;
+  return side ? '<div class="home-cols"><div>' + h + '</div><div>' + side + '</div></div>' : h;
 }
 function homeGames() {
   var h = D.staff
@@ -1142,7 +1178,7 @@ function viewNow() {
   if (rec && my && STALE) { h += '<div class="info">最新の点数を読み込み中です。数秒お待ちください（読み込めたらボタンが出ます）。</div>'; my = ''; }
   var shown = rec && my ? board.filter(function (b) { return b.ground === my; }) : board;
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
-  h += shown.map(function (b) { return nowCard(b, rec && !!my); }).join('');
+  h += '<div class="now-grid' + (shown.length === 1 ? ' one' : '') + '">' + shown.map(function (b) { return nowCard(b, rec && !!my); }).join('') + '</div>';
   if (rec && my) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「見るだけ」に戻してください。</div>';
   if (rehearsal()) h += clearCard();
   return h;
@@ -1336,7 +1372,7 @@ function progressByDate() {
   PHASES.forEach(function (p) {
     var list = D.tasks.filter(function (t) { return t.phase === p; });
     if (!list.length) return;
-    h += '<div id="phase-' + p + '"><span class="phase phase-' + p + '">' + p + phaseRange(p) + '</span></div>' + dateGroupsHtml(list);
+    h += '<div id="phase-' + p + '"><span class="phase phase-' + p + '">' + p + phaseRange(p) + '</span></div><div class="dg-cols">' + dateGroupsHtml(list, true) + '</div>';
   });
   return h;
 }
@@ -1364,7 +1400,7 @@ function viewDay() {
     h += '<h2 class="sec">開会式の整列順（8:25〜）</h2><div class="card"><ol class="line-up">' +
       D.entries.map(function (e) { return '<li>' + teamHtml(e.code) + '</li>'; }).join('') + '<li>大会実行委員会</li></ol></div>';
   }
-  if (D.staff) h += '<h2 class="sec" id="roles">当日の役割と事前準備</h2>' + rolesHtml();
+  if (D.staff) h += '<h2 class="sec" id="roles">当日の役割と事前準備</h2><div class="card-grid">' + rolesHtml() + '</div>';
   return h;
 }
 function myPlan(me) {
@@ -1486,7 +1522,7 @@ function viewEvent() {
   var h = '<h2 class="sec">アトラクション</h2>';
   if (isEventDay()) h += clearCard();
   if (D.staff) h += '<datalist id="teamList">' + D.entries.map(function (e) { return '<option value="' + esc(e.name || e.code) + '">'; }).join('') + '</datalist>';
-  return h + D.attractions.map(attrCard).join('') + (rehearsal() ? clearCard() : '');
+  return h + '<div class="card-grid">' + D.attractions.map(attrCard).join('') + '</div>' + (rehearsal() ? clearCard() : '');
 }
 /** アトラクションのカード：サラッと（名前・時間・場所・ひとこと＋上位5人） */
 function attrCard(a) {
@@ -1601,12 +1637,12 @@ function docsList() {
     var x = order.indexOf(a.category), y = order.indexOf(b.category);
     return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
   });
-  return '<h2 class="sec">資料</h2>' + docs.map(function (d) {
+  return '<h2 class="sec">資料</h2><div class="card-grid">' + docs.map(function (d) {
     return '<details class="card acc"><summary><div class="team-head"><span class="name"><span class="cat">' + esc(d.category) + '</span>' + esc(d.title) +
       (D.staff && !d.public ? ' <span class="chip role">委員のみ</span>' : '') + '</span><span class="chev">▶</span></div></summary>' +
       (d.body ? '<div class="doc-body">' + esc(d.body) + '</div>' : '') +
       (d.link ? '<a class="btn" style="margin-top:10px" href="' + esc(d.link) + '" target="_blank" rel="noopener">開く →</a>' : '') + '</details>';
-  }).join('') + driveLinksHtml();
+  }).join('') + '</div>' + driveLinksHtml();
 }
 /** 共有ドライブの資料（委員のみ）。スプシの「資料リンク」シートでチェックしたものを、フォルダごとに出す */
 function driveLinksHtml() {
@@ -1614,18 +1650,18 @@ function driveLinksHtml() {
   if (!D.staff || !L.length) return '';
   var folders = [], by = {};
   L.forEach(function (x) { var f = x.folder || '（フォルダ直下）'; if (!by[f]) { by[f] = []; folders.push(f); } by[f].push(x); });
-  return '<h2 class="sec">ドライブの資料 <span class="chip role">委員のみ</span></h2>' + folders.map(function (f) {
+  return '<h2 class="sec">ドライブの資料 <span class="chip role">委員のみ</span></h2><div class="card-grid">' + folders.map(function (f) {
     return '<div class="card"><div class="muted" style="font-weight:700;margin-bottom:4px">📁 ' + esc(f) + '</div>' + by[f].map(function (x) {
       return '<a class="drive-link" href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.name) + '</a>';
     }).join('') + '</div>';
-  }).join('') + '<div class="muted">共有ドライブを開ける Google アカウントでログインしていると開けます。並びや表示はスプシの「資料リンク」シートで変えられます。</div>';
+  }).join('') + '</div><div class="muted">共有ドライブを開ける Google アカウントでログインしていると開けます。並びや表示はスプシの「資料リンク」シートで変えられます。</div>';
 }
 function equipView() {
   var cats = [], by = {};
   D.equipment.forEach(function (q) { if (!by[q.category]) { by[q.category] = []; cats.push(q.category); } by[q.category].push(q); });
   var loaded = D.equipment.filter(function (q) { return q.loaded; }).length;
   var h = '<div class="info">積込チェック済み <b>' + loaded + ' / ' + D.equipment.length + '</b>　（チェックはスプシの「備品」シートで）</div>';
-  return h + cats.map(function (c) {
+  return h + '<div class="card-grid">' + cats.map(function (c) {
     var list = by[c], ok = list.filter(function (q) { return q.loaded; }).length;
     return '<details class="card acc"><summary><div class="team-head"><span class="name">' + esc(c) + '</span>' +
       '<span class="left-badge' + (ok === list.length ? ' ok' : '') + '">積込 ' + ok + '/' + list.length + '</span><span class="chev">▶</span></div></summary><div class="detail">' +
@@ -1636,7 +1672,7 @@ function equipView() {
           '<div style="text-align:right"><div class="qty">' + esc(qty) + '</div>' +
           '<span class="ck ' + (q.checked ? 'on' : 'off') + '">現物</span> <span class="ck ' + (q.loaded ? 'on' : 'off') + '">積込</span></div></div>';
       }).join('') + '</div></details>';
-  }).join('');
+  }).join('') + '</div>';
 }
 /** 参加登録（企業ごとの申込・登録用紙・弁当・キャプテン会議の受付）の集計。スプシの「参加登録」シート */
 function registrationView() {
