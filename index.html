@@ -359,6 +359,7 @@
     /* カードを横に並べる（試合の速報・対戦表、イベント、資料、役割など） */
     .card-grid, .now-grid, .game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
     .game-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .card-grid.lg { grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); max-width: 1000px; }
     .card-grid > *, .now-grid > *, .game-grid > * { margin: 0 !important; }
     .now-grid, .card-grid { margin-top: 10px; }
     .now-grid.one { grid-template-columns: minmax(0, 560px); }
@@ -814,12 +815,38 @@ function battingSide(m) {
 }
 function sideName(side) { return side === 's3' ? '3塁' : '1塁'; }
 
-/** 予選の順位表 */
+/**
+ * 予選のリーグ分け。対戦表で当たる相手のつながりからチームをまとめる（つながったチーム同士が1つのリーグ）。
+ * 全チームがつながっていれば、これまでどおり全体で1つの順位表。分かれていれば「1組」「2組」…（記号の若い順）
+ */
+function leagues() {
+  var parent = {};
+  function top(c) { while (parent[c] !== c) c = parent[c] = parent[parent[c]]; return c; }
+  D.entries.forEach(function (e) { parent[e.code] = e.code; });
+  D.matches.forEach(function (m) {
+    if (isBye(m) || !(m.first in parent) || !(m.third in parent)) return;
+    parent[top(m.first)] = top(m.third);
+  });
+  var out = [], idx = {};
+  D.entries.forEach(function (e) {
+    var r = top(e.code);
+    if (!(r in idx)) { idx[r] = out.length; out.push([]); }
+    out[idx[r]].push(e.code);
+  });
+  return out;
+}
+
+/** 予選の順位表。S.groups＝リーグごとの順位、S.rows＝全体の順位（リーグが1つならそのリーグと同じ） */
 function standings() {
   var st = {}, order = [];
   D.entries.forEach(function (e) {
     st[e.code] = { code: e.code, p: 0, w: 0, d: 0, l: 0, pts: 0, rf: 0, ra: 0, adj: num(e.rankAdj) === null ? 999 : num(e.rankAdj) };
     order.push(e.code);
+  });
+  var lg = leagues(), multi = lg.length > 1, grp = {};
+  lg.forEach(function (codes, i) { codes.forEach(function (c) { grp[c] = i; }); });
+  var gs = lg.map(function (codes, i) {
+    return { name: multi ? (i + 1) + '組' : '', codes: codes, playable: 0, played: 0, grounds: [] };
   });
   var playable = 0, played = 0;
   D.matches.forEach(function (m) {
@@ -828,10 +855,14 @@ function standings() {
       if (st[w]) { st[w].p++; st[w].w++; st[w].pts += 3; }
       return;
     }
+    var g = gs[grp[m.first]];
+    if (g && m.ground && g.grounds.indexOf(String(m.ground)) < 0) g.grounds.push(String(m.ground));
     playable++;
+    if (g) g.playable++;
     if (!isDone(m)) return; // 試合中の点は順位に入れない
     var a = num(m.s1), b = num(m.s3);
     played++;
+    if (g) g.played++;
     [[m.first, a, b], [m.third, b, a]].forEach(function (x) {
       var r = st[x[0]];
       if (!r) return;
@@ -840,22 +871,30 @@ function standings() {
     });
   });
   function key(r) { return [r.pts, r.rf - r.ra, r.rf, -r.ra]; }
-  var rows = order.map(function (c) { return st[c]; });
-  rows.sort(function (x, y) {
-    var a = key(x), b = key(y);
-    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i] - a[i];
-    return x.adj - y.adj;
+  function rank(rows, anyPlayed) {
+    rows.sort(function (x, y) {
+      var a = key(x), b = key(y);
+      for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i] - a[i];
+      return x.adj - y.adj;
+    });
+    return rows.map(function (r, i) {
+      var prev = rows[i - 1], next = rows[i + 1];
+      function same(o) { return o && key(o).join() === key(r).join() && o.adj === r.adj; }
+      return { r: r, rank: i + 1, tie: anyPlayed && (same(prev) || same(next)) };
+    });
+  }
+  // リーグ内の順位（rank・tie）は各チームに、全体の順位は S.rows の並びに持たせる
+  gs.forEach(function (g) {
+    g.rows = rank(g.codes.map(function (c) { return st[c]; }), g.played > 0).map(function (x) {
+      x.r.rank = x.rank; x.r.tie = x.tie; x.r.group = g.name; return x.r;
+    });
+    g.done = g.playable > 0 && g.played === g.playable;
   });
-  rows.forEach(function (r, i) {
-    var prev = rows[i - 1], next = rows[i + 1];
-    function same(o) { return o && key(o).join() === key(r).join() && o.adj === r.adj; }
-    r.rank = i + 1;
-    r.tie = played > 0 && (same(prev) || same(next));
-  });
-  return { rows: rows, playable: playable, played: played, done: playable > 0 && played === playable };
+  var rows = multi ? rank(order.map(function (c) { return st[c]; }), false).map(function (x) { return x.r; }) : gs[0] ? gs[0].rows : [];
+  return { rows: rows, groups: gs, playable: playable, played: played, done: playable > 0 && played === playable };
 }
 
-/** 決勝：「予選1位」「準決勝1勝者」などの書き方からチームを決める */
+/** 決勝：「予選1位」「1組1位」「準決勝1勝者」などの書き方からチームを決める */
 function resolveFinals(S) {
   var byId = {}, memo = {}, busy = {};
   D.finals.forEach(function (f) { byId[f.id] = f; });
@@ -865,6 +904,11 @@ function resolveFinals(S) {
     if (m) {
       var r = S.rows[+m[1] - 1];
       return S.played > 0 && r ? { code: r.code, label: text, prov: !S.done } : { code: null, label: text };
+    }
+    m = text.match(/^(\d+)組(\d+)位$/);
+    if (m) {
+      var g = S.groups[+m[1] - 1], gr = g && g.rows[+m[2] - 1];
+      return g && g.played > 0 && gr ? { code: gr.code, label: text, prov: !g.done } : { code: null, label: text };
     }
     m = text.match(/^(.+?)(勝者|敗者)$/);
     if (m && byId[m[1]]) {
@@ -985,16 +1029,28 @@ function gamesRounds() {
 }
 function gamesTable(S) {
   var n = +D.settings.finalists || 4;
+  var multi = S.groups.length > 1, per = multi ? Math.max(1, Math.floor(n / S.groups.length)) : n; // 各リーグから進む数
+  var table = function (g) {
+    return '<div class="card" style="padding:6px 10px"><table class="stand"><thead><tr><th>順</th><th style="text-align:left">チーム</th><th>勝点</th><th>勝-分-敗</th><th>得失</th><th>得点</th></tr></thead><tbody>' +
+      g.rows.map(function (r) {
+        var diff = r.rf - r.ra;
+        return '<tr class="' + (r.rank <= per && g.played ? 'adv' : '') + '"><td class="rk">' + r.rank + '</td>' +
+          '<td class="t">' + teamHtml(r.code) + (r.tie ? '<span class="tie">同率</span>' : '') + '</td>' +
+          '<td class="pts">' + r.pts + '</td><td>' + r.w + '-' + r.d + '-' + r.l + '</td>' +
+          '<td>' + (diff > 0 ? '+' : '') + diff + '</td><td>' + r.rf + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  };
   var h = '<div class="round-head"><b>予選順位</b><span>' + (S.done ? '予選終了・確定' : S.played + '/' + S.playable + '試合終了（途中経過）') + '</span></div>';
-  h += '<div class="card" style="padding:6px 10px"><table class="stand"><thead><tr><th>順</th><th style="text-align:left">チーム</th><th>勝点</th><th>勝-分-敗</th><th>得失</th><th>得点</th></tr></thead><tbody>' +
-    S.rows.map(function (r) {
-      var diff = r.rf - r.ra;
-      return '<tr class="' + (r.rank <= n && S.played ? 'adv' : '') + '"><td class="rk">' + r.rank + '</td>' +
-        '<td class="t">' + teamHtml(r.code) + (r.tie ? '<span class="tie">同率</span>' : '') + '</td>' +
-        '<td class="pts">' + r.pts + '</td><td>' + r.w + '-' + r.d + '-' + r.l + '</td>' +
-        '<td>' + (diff > 0 ? '+' : '') + diff + '</td><td>' + r.rf + '</td></tr>';
-    }).join('') + '</tbody></table></div>';
-  h += '<div class="muted">緑＝決勝トーナメント進出圏（上位' + n + 'チーム）。順位は 勝点 → 得失点差 → 総得点 → 失点の少なさ → ジャンケン。勝点：勝ち3・引分け1・負け0。' +
+  if (multi) {
+    h += '<div class="card-grid lg">' + S.groups.map(function (g) {
+      return '<div><div class="round-head" style="margin-top:8px"><b>' + esc(g.name) + '</b><span>' +
+        esc(g.grounds.map(ground).join('・')) + (g.done ? '　確定' : '') + '</span></div>' + table(g) + '</div>';
+    }).join('') + '</div>';
+  } else if (S.groups[0]) {
+    h += table(S.groups[0]);
+  }
+  h += '<div class="muted">緑＝決勝トーナメント進出圏（' + (multi ? '各組の' + (per > 1 ? '上位' + per + 'チーム' : '1位') : '上位' + n + 'チーム') + '）。' +
+    '順位は 勝点 → 得失点差 → 総得点 → 失点の少なさ → ジャンケン。勝点：勝ち3・引分け1・負け0。' +
     (S.rows.some(function (r) { return r.tie; }) ? '<br><b style="color:var(--late)">「同率」はジャンケンで決めます</b>（委員がスプシの「順位補正」に入力）' : '') + '</div>';
   return h;
 }
@@ -1061,7 +1117,7 @@ function gamesTeam(S) {
   return h + '<div class="card-grid" style="margin-top:10px">' + list.map(function (c) {
     var r = S.rows.filter(function (x) { return x.code === c; })[0];
     return '<div class="card"><div class="team-head"><span class="name">' + teamHtml(c) + '</span>' +
-      (r && S.played ? '<span class="muted">' + r.rank + '位・勝点' + r.pts + '</span>' : '') + '</div>' + teamSchedule(c, S) + '</div>';
+      (r && S.played ? '<span class="muted">' + esc(r.group || '') + r.rank + '位・勝点' + r.pts + '</span>' : '') + '</div>' + teamSchedule(c, S) + '</div>';
   }).join('') + '</div>';
 }
 
