@@ -78,7 +78,7 @@
   .gmap-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .gmap-legend i { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); display: inline-block; }
   .gmap-zoom { margin-top: 8px; }
-  @media (min-width: 1024px) { .gmap-card { max-width: 680px; } }
+  @media (min-width: 1024px) { .gmap-card { max-width: 680px; } .gmap-card.games { max-width: 560px; } }
   .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
   /* 予定行 */
@@ -1027,7 +1027,7 @@ function viewGames() {
   return h;
 }
 function gamesRounds() {
-  return rounds().map(function (r) {
+  return roundsMapHtml() + rounds().map(function (r) {
     var games = r.list.filter(function (m) { return !isBye(m); });
     var byes = r.list.filter(isBye);
     var done = games.filter(isDone).length;
@@ -1243,6 +1243,7 @@ function viewNow() {
   if (rec && my && STALE) { h += '<div class="info">最新の点数を読み込み中です。数秒お待ちください（読み込めたらボタンが出ます）。</div>'; my = ''; }
   var shown = rec && my ? board.filter(function (b) { return b.ground === my; }) : board;
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
+  if (shown.length > 1) h += nowMapHtml(shown);
   h += '<div class="now-grid' + (shown.length === 1 ? ' one' : '') + '">' + shown.map(function (b) { return nowCard(b, rec && !!my); }).join('') + '</div>';
   if (rec && my) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「見るだけ」に戻してください。</div>';
   if (rehearsal()) h += clearCard();
@@ -1258,7 +1259,7 @@ function clearRecords() {
   else mockClearRecords(done);
 }
 function nowCard(b, canRec) {
-  var x = b.cur, h = '<div class="now-card' + (x && isLive(x.m) ? ' on' : '') + '"><div class="now-top"><span class="gname">' + esc(ground(b.ground)) + '</span>';
+  var x = b.cur, h = '<div class="now-card' + (x && isLive(x.m) ? ' on' : '') + '" id="now-g' + esc(b.ground) + '"><div class="now-top"><span class="gname">' + esc(ground(b.ground)) + '</span>';
   if (!x) {
     h += '<span class="st st-完了">本日の試合は終了</span></div>';
     if (b.last) h += lastLine(b.last, canRec);
@@ -1591,7 +1592,7 @@ function viewEvent() {
 }
 /** アトラクションのカード：サラッと（名前・時間・場所・ひとこと＋上位5人） */
 function attrCard(a) {
-  var rows = [['時間', a.time], ['場所', a.place], ['内容', a.content]].filter(function (x) { return x[1]; });
+  var rows = [['時間', a.time], ['場所', a.place], ['参加', a.target], ['内容', a.content], ['景品', a.prize]].filter(function (x) { return x[1]; });
   if (D.staff) rows = rows.concat([['担当', a.owner], ['準備物', a.items], ['委員メモ', a.note]].filter(function (x) { return x[1]; }));
   var h = '<div class="card attr" id="attr-' + esc(a.id) + '"><div class="attr-head"><span class="nm">' + esc(a.name) + '</span>' +
     (a.status ? '<span class="st ' + (a.status === '決定' ? 'st-決定' : 'st-pend') + '">' + esc(a.status) + '</span>' : '') + '</div>' +
@@ -1710,7 +1711,8 @@ function docsList() {
   }).join('') + '</div>' + driveLinksHtml();
 }
 /* グラウンド配置図。中身は make_ground_map.py が作って印のあいだに入れる（手で直さない） */
-/*GROUND_MAP_SVG*/var GROUND_MAP_SVG = '<svg class="gmap" viewBox="335 60 510 625" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, &quot;Yu Gothic UI&quot;, Meiryo, sans-serif" role="img" aria-label="グラウンド配置図"><defs><pattern id="gm-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#fbe3e3"/><line x1="0" y1="0" x2="0" y2="8" stroke="#e8a3a3" stroke-width="3"/></pattern><pattern id="gm-park" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#dbe7f5"/><line x1="0" y1="0" x2="0" y2="7" stroke="#8fb0d6" stroke-width="2.5"/></pattern></defs><rect x="335" y="60" width="510" height="625" fill="#f6f4ee"/><polygon points="312,661 206,484 426,355 531,536 528,558 431,661" fill="#ecebe5" stroke="#d6d3c9" stroke-width="1"/><polygon points="440,323 341,378 246,193 333,152" fill="#ecebe5" stroke="#d6d3c9" stroke-width="1"/><polygon points="344,382 252,202 121,276 121,388 168,478" fill="#ecebe5" stroke="#d6d3c9" stroke-width="1"/><polygon points="683,134 557,155 516,100 536,54 681,54" fill="#ecebe5" stroke="#d6d3c9" stroke-width="1"/><polygon points="96,54 236,54 182,84 96,121" fill="url(#gm-hatch)" stroke="#e8a3a3" stroke-width="1"/><polygon points="516,674 664,579 705,528 720,487 755,416 781,339 795,227 840,101 841,163 815,227 803,272 804,298 800,397 795,427 728,555 647,615 550,675" fill="url(#gm-hatch)" stroke="#e8a3a3" stroke-width="1"/><polygon points="615,224 439,324 348,175 514,85" fill="#cfe6c3" stroke="#a9cf9a" stroke-width="1"/><polygon points="425,352 536,542 659,438 694,395 692,366 605,241" fill="#cfe6c3" stroke="#a9cf9a" stroke-width="1"/><polyline points="636,203 702,308 741,339 767,260" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="699,484 607,553 571,548 542,568" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="726,294 734,362 725,386 695,432 582,529 512,596" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="541,562 438,661" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="638,226 705,152 704,49" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="706,303 732,153" fill="none" stroke="#c9c3b6" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polyline points="636,203 702,308 741,339 767,260" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polyline points="699,484 607,553 571,548 542,568" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polyline points="726,294 734,362 725,386 695,432 582,529 512,596" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polyline points="541,562 438,661" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polyline points="638,226 705,152 704,49" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polyline points="706,303 732,153" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><polygon points="704,292 669,229 679,210 671,191 710,132 727,143" fill="url(#gm-park)" stroke="#6f95c2" stroke-width="1.2"/><polygon points="744,270 758,211 795,93 777,89 744,174 715,325 727,329" fill="url(#gm-park)" stroke="#6f95c2" stroke-width="1.2"/><polygon points="570,547 678,450 706,402 714,377 716,344 727,350 725,375 719,408 693,460 654,510 591,549" fill="url(#gm-park)" stroke="#6f95c2" stroke-width="1.2"/><polygon points="627,207 660,254 679,285 684,292 675,297 615,210" fill="url(#gm-park)" stroke="#6f95c2" stroke-width="1.2"/><polygon points="686,315 715,358 675,386 645,344" fill="#d4d4d4" stroke="#999" stroke-width="1.2"/><polygon points="639,174 698,263 609,323 549,234" fill="#fff4e6" stroke="#e8590c" stroke-width="2.5" stroke-linejoin="round"/><polygon points="519,273 605,223 549,146 470,195" fill="#7cc06a" stroke="#4f8f3f" stroke-width="2.5" stroke-linejoin="round"/><polygon points="593,221 562,241 541,210 573,189" fill="#e5c48f" stroke="#c9a46a" stroke-width="1.5"/><rect x="558.1" y="237.9" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-123 561.6 241.4)"/><rect x="537.5" y="206.3" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-123 541.0 209.8)"/><rect x="569.0" y="185.6" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-123 572.5 189.1)"/><polygon points="587,225 589,215 596,216 600,222 594,226" fill="#fff" stroke="#555" stroke-width="1.2"/><circle cx="523.4" cy="206.6" r="21" fill="#1f5f99" stroke="#fff" stroke-width="3"/><text x="523.4" y="215.1" text-anchor="middle" font-size="25" font-weight="800" fill="#fff">①</text><polygon points="389,246 434,322 509,281 466,203" fill="#7cc06a" stroke="#4f8f3f" stroke-width="2.5" stroke-linejoin="round"/><polygon points="437,310 420,281 449,265 466,294" fill="#e5c48f" stroke="#c9a46a" stroke-width="1.5"/><rect x="416.9" y="278.0" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-30 420.4 281.5)"/><rect x="445.8" y="261.3" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-30 449.3 264.8)"/><rect x="462.5" y="290.3" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(-30 466.0 293.8)"/><polygon points="434,304 443,307 441,314 435,317 432,311" fill="#fff" stroke="#555" stroke-width="1.2"/><circle cx="452.4" cy="252.3" r="21" fill="#1f5f99" stroke="#fff" stroke-width="3"/><text x="452.4" y="260.8" text-anchor="middle" font-size="25" font-weight="800" fill="#fff">②</text><polygon points="507,302 425,353 476,438 555,382" fill="#7cc06a" stroke="#4f8f3f" stroke-width="2.5" stroke-linejoin="round"/><polygon points="437,356 467,336 487,367 456,386" fill="#e5c48f" stroke="#c9a46a" stroke-width="1.5"/><rect x="463.8" y="332.8" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(57 467.3 336.3)"/><rect x="483.4" y="363.4" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(57 486.9 366.9)"/><rect x="452.7" y="383.0" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(57 456.2 386.5)"/><polygon points="443,352 440,362 434,360 430,354 436,350" fill="#fff" stroke="#555" stroke-width="1.2"/><circle cx="502.6" cy="371.2" r="21" fill="#1f5f99" stroke="#fff" stroke-width="3"/><text x="502.6" y="379.7" text-anchor="middle" font-size="25" font-weight="800" fill="#fff">③</text><polygon points="515,294 582,254 632,323 560,368" fill="#7cc06a" stroke="#4f8f3f" stroke-width="2.5" stroke-linejoin="round"/><polygon points="580,266 597,292 571,309 554,283" fill="#e5c48f" stroke="#c9a46a" stroke-width="1.5"/><rect x="593.9" y="288.2" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(146 597.4 291.7)"/><rect x="568.0" y="305.7" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(146 571.5 309.2)"/><rect x="550.5" y="279.8" width="7" height="7" fill="#fff" stroke="#9b7b4a" stroke-width="1" transform="rotate(146 554.0 283.3)"/><polygon points="584,272 574,270 575,263 581,259 585,265" fill="#fff" stroke="#555" stroke-width="1.2"/><circle cx="570.1" cy="319.9" r="21" fill="#1f5f99" stroke="#fff" stroke-width="3"/><text x="570.1" y="328.4" text-anchor="middle" font-size="25" font-weight="800" fill="#fff">④</text><text x="641" y="250" text-anchor="middle" font-size="17" font-weight="800" fill="#c2410c">★本部テント</text><rect x="421.6" y="121.8" width="166.9" height="19.8" rx="9.6" fill="#1f5f99" stroke="#fff" stroke-width="1.5"/><text x="505.0" y="136.2" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">開会式・ラジオ体操・表彰式</text><rect x="538.2" y="158.7" width="35.6" height="18.1" rx="8.8" fill="#5f6b7a" stroke="#fff" stroke-width="1.5"/><text x="556.0" y="171.8" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">司会</text><rect x="580.4" y="284.9" width="103.2" height="21.4" rx="10.4" fill="#7048e8" stroke="#fff" stroke-width="1.5"/><text x="632.0" y="300.6" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">アトラクション</text><text x="680" y="356" text-anchor="middle" font-size="13" font-weight="800" fill="#444">駐輪</text><rect x="672" y="468" width="20" height="20" rx="4" fill="#f08c00" stroke="#fff" stroke-width="2"/><rect x="690.7" y="469.8" width="84.6" height="19.8" rx="9.6" fill="#f08c00" stroke="#fff" stroke-width="1.5"/><text x="733.0" y="484.2" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">東山支部倉庫</text><rect x="634.9" y="154.9" width="52.2" height="21.4" rx="10.4" fill="#1971c2" stroke="#fff" stroke-width="1.5"/><text x="661.0" y="170.6" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">トイレ</text><rect x="555.7" y="489.8" width="84.6" height="19.8" rx="9.6" fill="#d6336c" stroke="#fff" stroke-width="1.5"/><text x="598.0" y="504.2" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">女性用トイレ</text><circle cx="600" cy="208" r="9" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="600" y="212" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">喫</text><circle cx="564" cy="253" r="9" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="564" y="257" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">喫</text><circle cx="435" cy="331" r="9" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="435" y="335" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">喫</text><circle cx="542" cy="542" r="9" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="542" y="546" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">喫</text><rect x="646.6" y="316.6" width="24.8" height="18.1" rx="8.8" fill="#8d6e63" stroke="#fff" stroke-width="1.5"/><text x="659.0" y="329.9" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">溝</text><rect x="452.6" y="420.6" width="24.8" height="18.1" rx="8.8" fill="#8d6e63" stroke="#fff" stroke-width="1.5"/><text x="465.0" y="433.9" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">溝</text><rect x="601.6" y="459.6" width="24.8" height="18.1" rx="8.8" fill="#8d6e63" stroke="#fff" stroke-width="1.5"/><text x="614.0" y="472.9" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">溝</text><circle cx="694" cy="205" r="11" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="694" y="210" text-anchor="middle" font-size="14" font-weight="800" fill="#fff">P</text><circle cx="758" cy="160" r="11" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="758" y="165" text-anchor="middle" font-size="14" font-weight="800" fill="#fff">P</text><circle cx="703" cy="418" r="11" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="703" y="423" text-anchor="middle" font-size="14" font-weight="800" fill="#fff">P</text><line x1="824" y1="81" x2="749.0" y2="250.5" stroke="#c92a2a" stroke-width="3" stroke-linecap="round"/><polygon points="747,255 747,244 755,248" fill="#c92a2a"/><rect x="769.5" y="139.8" width="61.0" height="19.8" rx="9.6" fill="#c92a2a" stroke="#fff" stroke-width="1.5"/><text x="800.0" y="154.2" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">車の進路</text><line x1="752" y1="424" x2="741.1" y2="400.5" stroke="#c92a2a" stroke-width="3" stroke-linecap="round"/><polygon points="739,396 748,403 739,407" fill="#c92a2a"/><circle cx="760" cy="366" r="11" fill="#fff" stroke="#c92a2a" stroke-width="4"/><line x1="752" y1="374" x2="768" y2="358" stroke="#c92a2a" stroke-width="4"/><rect x="731.4" y="382.6" width="57.1" height="18.1" rx="8.8" fill="#c92a2a" stroke="#fff" stroke-width="1.5"/><text x="760.0" y="395.9" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">進入禁止</text><text x="616" y="566" text-anchor="middle" font-size="18" font-weight="800" fill="#c92a2a">×</text><text x="639" y="546" text-anchor="middle" font-size="18" font-weight="800" fill="#c92a2a">×</text><text x="663" y="525" text-anchor="middle" font-size="18" font-weight="800" fill="#c92a2a">×</text><g transform="rotate(-44 497 622)"><rect x="466.5" y="611.8" width="61.0" height="19.8" rx="9.6" fill="#c92a2a" stroke="#fff" stroke-width="1.5"/><text x="497.0" y="626.2" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">駐車不可</text></g><text x="700" y="610" text-anchor="middle" font-size="12" font-weight="700" fill="#b02525">土手・上の道路は進入禁止</text><text x="700" y="626" text-anchor="middle" font-size="11" fill="#b02525">（下の民家のプライバシー保護のため）</text><g transform="translate(372 112)"><circle r="24" fill="#fff" stroke="#9aa5b1" stroke-width="1.5"/><polygon points="0,-20 7,6 0,1 -7,6" fill="#1c2430"/><text y="-28" text-anchor="middle" font-size="16" font-weight="800" fill="#1c2430">N</text></g></svg>';/*/GROUND_MAP_SVG*/
+/*GROUND_MAP_SVG*/var GROUND_MAP_SVG = '<svg class="gmap" viewBox="335 100 545 445" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, &quot;Yu Gothic UI&quot;, Meiryo, sans-serif" role="img" aria-label="グラウンド配置図"><defs><pattern id="gm-ng" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="#fbe4e4"/><line x1="0" y1="0" x2="0" y2="7" stroke="#efb3b3" stroke-width="2.5"/></pattern><filter id="gm-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#1c2430" flood-opacity=".18"/></filter></defs><rect x="335" y="100" width="545" height="445" fill="#f6f5f0"/><path d="M846,100 L880,100 L880,545 L335,545 L335,522 L846,522 Z" fill="url(#gm-ng)"/><text x="600" y="538" text-anchor="middle" font-size="11" font-weight="700" fill="#c92a2a">土手・上の道路は進入禁止（下の民家のプライバシー保護のため）</text><rect x="391" y="160" width="258" height="268" rx="22" fill="#e3efd9" stroke="#cfe2c1"/><polyline points="780,104 780,478 360,478 340,492" fill="none" stroke="#d9d4c8" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><polyline points="780,104 780,478 360,478 340,492" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/><polyline points="392,294 780,294" fill="none" stroke="#d9d4c8" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><polyline points="392,294 780,294" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><rect x="744" y="136" width="24" height="318" rx="6" fill="#dde8f5" stroke="#9db8da" stroke-dasharray="4 3"/><rect x="792" y="118" width="26" height="344" rx="6" fill="#dde8f5" stroke="#9db8da" stroke-dasharray="4 3"/><rect x="468" y="444" width="236" height="22" rx="6" fill="#dde8f5" stroke="#9db8da" stroke-dasharray="4 3"/><circle cx="756" cy="182" r="10" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="756" y="186.0" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">P</text><circle cx="805" cy="160" r="10" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="805" y="164.0" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">P</text><circle cx="590" cy="455" r="10" fill="#1f5f99" stroke="#fff" stroke-width="2"/><text x="590" y="459.0" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">P</text><rect x="405" y="175" width="108" height="108" rx="10" fill="#86c26f" stroke="#5e9e4a" stroke-width="2"/><path d="M414.0,274.0 L480.0,274.0 A66,66 0 0 0 414.0,208.0 Z" fill="#e3bb85" stroke="#c99a5c" stroke-width="1.2"/><polyline points="414.0,230.0 414.0,274.0 458.0,274.0" fill="none" stroke="#fff" stroke-width="1.4" opacity=".9"/><rect x="454.5" y="270.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="454.5" y="226.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="410.5" y="226.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><circle cx="414.0" cy="274.0" r="4.5" fill="#fff" stroke="#6b5b45" stroke-width="1"/><path d="M407.0,261.0 L407.0,281.0 L427.0,281.0" fill="none" stroke="#56606b" stroke-width="2.5" stroke-linecap="round"/><circle cx="495" cy="193" r="14" fill="#1f5f99" stroke="#fff" stroke-width="2.5"/><text x="495" y="199" text-anchor="middle" font-size="17" font-weight="800" fill="#fff">②</text><rect x="527" y="175" width="108" height="108" rx="10" fill="#86c26f" stroke="#5e9e4a" stroke-width="2"/><path d="M626.0,274.0 L560.0,274.0 A66,66 0 0 1 626.0,208.0 Z" fill="#e3bb85" stroke="#c99a5c" stroke-width="1.2"/><polyline points="626.0,230.0 626.0,274.0 582.0,274.0" fill="none" stroke="#fff" stroke-width="1.4" opacity=".9"/><rect x="578.5" y="270.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="578.5" y="226.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="622.5" y="226.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><circle cx="626.0" cy="274.0" r="4.5" fill="#fff" stroke="#6b5b45" stroke-width="1"/><path d="M633.0,261.0 L633.0,281.0 L613.0,281.0" fill="none" stroke="#56606b" stroke-width="2.5" stroke-linecap="round"/><circle cx="545" cy="193" r="14" fill="#1f5f99" stroke="#fff" stroke-width="2.5"/><text x="545" y="199" text-anchor="middle" font-size="17" font-weight="800" fill="#fff">①</text><rect x="405" y="305" width="108" height="108" rx="10" fill="#86c26f" stroke="#5e9e4a" stroke-width="2"/><path d="M414.0,314.0 L480.0,314.0 A66,66 0 0 1 414.0,380.0 Z" fill="#e3bb85" stroke="#c99a5c" stroke-width="1.2"/><polyline points="414.0,358.0 414.0,314.0 458.0,314.0" fill="none" stroke="#fff" stroke-width="1.4" opacity=".9"/><rect x="454.5" y="310.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="454.5" y="354.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="410.5" y="354.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><circle cx="414.0" cy="314.0" r="4.5" fill="#fff" stroke="#6b5b45" stroke-width="1"/><path d="M407.0,327.0 L407.0,307.0 L427.0,307.0" fill="none" stroke="#56606b" stroke-width="2.5" stroke-linecap="round"/><circle cx="495" cy="395" r="14" fill="#1f5f99" stroke="#fff" stroke-width="2.5"/><text x="495" y="401" text-anchor="middle" font-size="17" font-weight="800" fill="#fff">③</text><rect x="527" y="305" width="108" height="108" rx="10" fill="#86c26f" stroke="#5e9e4a" stroke-width="2"/><path d="M626.0,314.0 L560.0,314.0 A66,66 0 0 0 626.0,380.0 Z" fill="#e3bb85" stroke="#c99a5c" stroke-width="1.2"/><polyline points="626.0,358.0 626.0,314.0 582.0,314.0" fill="none" stroke="#fff" stroke-width="1.4" opacity=".9"/><rect x="578.5" y="310.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="578.5" y="354.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><rect x="622.5" y="354.5" width="7" height="7" fill="#fff" stroke="#a78657" stroke-width=".8"/><circle cx="626.0" cy="314.0" r="4.5" fill="#fff" stroke="#6b5b45" stroke-width="1"/><path d="M633.0,327.0 L633.0,307.0 L613.0,307.0" fill="none" stroke="#56606b" stroke-width="2.5" stroke-linecap="round"/><circle cx="545" cy="395" r="14" fill="#1f5f99" stroke="#fff" stroke-width="2.5"/><text x="545" y="401" text-anchor="middle" font-size="17" font-weight="800" fill="#fff">④</text><rect x="656" y="246" width="68" height="96" rx="10" fill="#fff1e3" stroke="#e8590c" stroke-width="2" filter="url(#gm-sh)"/><text x="690" y="284" text-anchor="middle" font-size="15" fill="#e8590c">★</text><text x="690" y="302" text-anchor="middle" font-size="13" font-weight="800" fill="#b8430a">本部</text><text x="690" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#b8430a">テント</text><rect x="660.2" y="225.4" width="59.5" height="15.2" rx="7.6" fill="#5f6b7a"/><text x="690.0" y="236.6" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">司会・放送</text><rect x="660" y="372" width="60" height="38" rx="8" fill="#e2e2e2" stroke="#b5b5b5"/><text x="690" y="395" text-anchor="middle" font-size="11" font-weight="700" fill="#555">駐輪</text><rect x="517.0" y="142.0" width="142.0" height="16.0" rx="8.0" fill="#1f5f99"/><text x="588.0" y="153.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">開会式・ラジオ体操・表彰式</text><rect x="649.0" y="349.0" width="82.0" height="16.0" rx="8.0" fill="#7048e8"/><text x="690.0" y="360.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">アトラクション</text><rect x="690.2" y="203.6" width="43.5" height="16.8" rx="8.4" fill="#1971c2"/><text x="712.0" y="216.0" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">トイレ</text><rect x="382.0" y="444.0" width="72.0" height="16.0" rx="8.0" fill="#d6336c"/><text x="418.0" y="455.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">女性用トイレ</text><rect x="604" y="489" width="14" height="14" rx="3" fill="#b06a1e" stroke="#fff" stroke-width="1.5"/><rect x="628.0" y="489.0" width="72.0" height="16.0" rx="8.0" fill="#b06a1e"/><text x="664.0" y="500.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">東山支部倉庫</text><circle cx="650" cy="270" r="8" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="650" y="273.2" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">喫</text><circle cx="520" cy="294" r="8" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="520" y="297.2" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">喫</text><circle cx="392" cy="270" r="8" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="392" y="273.2" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">喫</text><circle cx="362" cy="440" r="8" fill="#2f9e44" stroke="#fff" stroke-width="2"/><text x="362" y="443.2" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">喫</text><rect x="639.5" y="410.8" width="21.0" height="14.4" rx="7.2" fill="#8d6e63"/><text x="650.0" y="421.4" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">溝</text><rect x="381.5" y="412.8" width="21.0" height="14.4" rx="7.2" fill="#8d6e63"/><text x="392.0" y="423.4" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">溝</text><rect x="437.5" y="489.8" width="21.0" height="14.4" rx="7.2" fill="#8d6e63"/><text x="448.0" y="500.4" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">溝</text><path d="M780,110 L780,150" stroke="#c92a2a" stroke-width="3" stroke-linecap="round"/><polygon points="780,160 773,147 787,147" fill="#c92a2a"/><rect x="754.0" y="108.0" width="52.0" height="16.0" rx="8.0" fill="#c92a2a"/><text x="780.0" y="119.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">車の入口</text><circle cx="826" cy="478" r="9" fill="#fff" stroke="#c92a2a" stroke-width="3"/><line x1="820" y1="484" x2="832" y2="472" stroke="#c92a2a" stroke-width="3"/><rect x="802.0" y="494.8" width="48.0" height="14.4" rx="7.2" fill="#c92a2a"/><text x="826.0" y="505.4" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">進入禁止</text><text x="372" y="473" text-anchor="middle" font-size="12" font-weight="800" fill="#c92a2a">×</text><text x="392" y="473" text-anchor="middle" font-size="12" font-weight="800" fill="#c92a2a">×</text><text x="412" y="473" text-anchor="middle" font-size="12" font-weight="800" fill="#c92a2a">×</text><rect x="367.0" y="492.4" width="50.0" height="15.2" rx="7.6" fill="#c92a2a"/><text x="392.0" y="503.6" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">駐車不可</text><g transform="translate(362 128) rotate(30)"><circle r="15" fill="#fff" stroke="#c3cad3"/><polygon points="0,-11 5,4 0,1 -5,4" fill="#1c2430"/></g><text x="362" y="156" text-anchor="middle" font-size="10" font-weight="800" fill="#1c2430">北</text></svg>';/*/GROUND_MAP_SVG*/
+/*GROUND_MAP_POS*/var GROUND_MAP_POS = {"grounds": {"2": {"x": 405, "y": 175, "w": 108, "h": 108, "cx": 459.0, "cy": 229.0, "bx": 495, "by": 193}, "1": {"x": 527, "y": 175, "w": 108, "h": 108, "cx": 581.0, "cy": 229.0, "bx": 545, "by": 193}, "3": {"x": 405, "y": 305, "w": 108, "h": 108, "cx": 459.0, "cy": 359.0, "bx": 495, "by": 395}, "4": {"x": 527, "y": 305, "w": 108, "h": 108, "cx": 581.0, "cy": 359.0, "bx": 545, "by": 395}}, "full": [335, 100, 545, 445], "games": [384, 161, 352, 272]};/*/GROUND_MAP_POS*/
 var GMAP_BIG = false;
 function groundMapHtml() {
   if (!GROUND_MAP_SVG) return '';
@@ -1723,6 +1725,113 @@ function groundMapHtml() {
     }).join('') + '</div>' +
     '<div class="muted">車は係の者の誘導に従って駐車してください。グラウンド③より西側には駐車しないでください。土手・上の道路は進入禁止です。</div>' +
     '<button class="btn ghost small gmap-zoom" onclick="GMAP_BIG=!GMAP_BIG;render()">' + (GMAP_BIG ? '元の大きさに戻す' : '拡大して見る') + '</button></div>';
+}
+/* ---------- 試合タブの配置図：各グラウンドに「いまの試合」や「選んだ回の対戦」を重ねる ---------- */
+var MAP_ROUND = '';
+/** 図に載せる短いチーム名（くじの前は「チームA」） */
+function shortTeam(code, opt) {
+  if (!code) return (opt && opt.label) || '未定';
+  var e = entryOf(code);
+  var nm = e && e.name ? e.name : (e ? 'チーム' + code : code);
+  nm = String(nm).replace(/株式会社|有限会社|[（(](株|有)[）)]/g, '').trim();
+  return nm.length > 7 ? nm.slice(0, 6) + '…' : nm;
+}
+/**
+ * info：{ グラウンド番号: { state: 'live'|'next'|'done', head, a, b, sa, sb, foot } }（無いグラウンドは「試合なし」）
+ * jump：true ならグラウンドを押すと下のカード（id="now-g番号"）へ移る
+ */
+function gameMapSvg(info, jump) {
+  var P = GROUND_MAP_POS;
+  if (!GROUND_MAP_SVG || !P) return '';
+  var svg = GROUND_MAP_SVG.replace(/viewBox="[^"]*"/, 'viewBox="' + P.games.join(' ') + '"');
+  var o = '';
+  Object.keys(P.grounds).forEach(function (g) {
+    var p = P.grounds[g], x = info[g];
+    var badge = '<circle cx="' + p.bx + '" cy="' + p.by + '" r="14" fill="#1f5f99" stroke="#fff" stroke-width="2.5"/>' +
+      '<text x="' + p.bx + '" y="' + (p.by + 6) + '" text-anchor="middle" font-size="17" font-weight="800" fill="#fff">' + (CIRCLED[+g] || g) + '</text>';
+    if (!x) {
+      o += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="10" fill="#f6f5f0" opacity=".78"/>' +
+        '<text x="' + p.cx + '" y="' + (p.cy + 5) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#5f6b7a">試合なし</text>' + badge;
+      return;
+    }
+    var live = x.state === 'live', done = x.state === 'done';
+    var cy = p.cy + (p.by < p.cy ? 8 : -8), w = 94, h = x.foot ? 72 : 60, top = cy - h / 2, L = p.cx - w / 2 + 8, R = p.cx + w / 2 - 8;
+    var row = function (y, name, score, win) {
+      return '<text x="' + L + '" y="' + y + '" font-size="12.5" font-weight="' + (win ? 800 : 700) + '" fill="#1c2430">' + esc(name) + '</text>' +
+        (score !== '' && score != null ? '<text x="' + R + '" y="' + y + '" text-anchor="end" font-size="15" font-weight="800" fill="' + (live ? '#e8590c' : '#1c2430') + '">' + esc(score) + '</text>' : '');
+    };
+    var g1 = '<g' + (jump ? ' style="cursor:pointer" onclick="gmJump(\'' + g + '\')"' : '') + '>';
+    if (live) o += '<rect x="' + (p.x - 3) + '" y="' + (p.y - 3) + '" width="' + (p.w + 6) + '" height="' + (p.h + 6) + '" rx="13" fill="none" stroke="#e8590c" stroke-width="4"/>';
+    o += g1 + '<rect x="' + (p.cx - w / 2) + '" y="' + top + '" width="' + w + '" height="' + h + '" rx="9" fill="#fff" opacity=".96" filter="url(#gm-sh)"' +
+      (live ? ' stroke="#e8590c" stroke-width="1.5"' : '') + '/>' +
+      '<text x="' + L + '" y="' + (top + 14) + '" font-size="10" font-weight="800" fill="' + (live ? '#e8590c' : done ? '#1d8a4a' : '#5f6b7a') + '">' + esc(x.head) + '</text>' +
+      row(top + 31, x.a, x.sa, x.win === 'a') + row(top + 49, x.b, x.sb, x.win === 'b') +
+      (x.foot ? '<text x="' + L + '" y="' + (top + 65) + '" font-size="9.5" fill="#5f6b7a">' + esc(x.foot) + '</text>' : '') + '</g>' + badge;
+  });
+  return svg.replace('</svg>', o + '</svg>');
+}
+function gmJump(g) {
+  var el = document.getElementById('now-g' + g);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+/** 速報の図：グラウンドごとの「いまの試合（なければ次の試合）」 */
+function nowMapHtml(board) {
+  var info = {};
+  board.forEach(function (b) {
+    var x = b.cur;
+    if (!x) return;
+    var m = x.m, live = isLive(m), s1 = nowSide(x, 'first'), s3 = nowSide(x, 'third');
+    info[b.ground] = {
+      state: live ? 'live' : 'next',
+      head: live ? '● 試合中 ' + (m.inning || '') : '次 ' + (x.kind === 'final' ? m.id : m.round) + ' ' + m.time + '〜',
+      a: shortTeam(s1.code, s1), b: shortTeam(s3.code, s3),
+      sa: live ? (num(m.s1) || 0) : '', sb: live ? (num(m.s3) || 0) : '',
+      foot: x.kind === 'match' && m.umpire ? '審判 ' + (entryOf(m.umpire) ? shortTeam(m.umpire) : m.umpire) : ''
+    };
+  });
+  var svg = gameMapSvg(info, true);
+  if (!svg) return '';
+  return '<div class="card gmap-card games"><div class="gmap-wrap">' + svg + '</div>' +
+    '<div class="muted" style="margin-top:6px">オレンジの枠が試合中。グラウンドを押すと、下のくわしい速報へ移ります。</div></div>';
+}
+/** 対戦表の図：回を選ぶと、その回にどのグラウンドで誰が試合をするか */
+function mapRounds() {
+  var list = rounds().map(function (r) {
+    return { key: r.round, label: r.round.replace('試合', ''), time: r.time, kind: 'prelim', games: r.list.filter(function (m) { return !isBye(m) && m.ground; }) };
+  });
+  var R = resolveFinals(standings()), by = {};
+  R.games.forEach(function (g) {
+    if (!g.f.ground) return;
+    var k = 'F' + g.f.time;
+    if (!by[k]) { by[k] = { key: k, label: /準決勝/.test(g.f.id) ? '準決勝' : '決勝', time: g.f.time, kind: 'final', games: [] }; list.push(by[k]); }
+    by[k].games.push(g);
+  });
+  return list;
+}
+function roundsMapHtml() {
+  var list = mapRounds();
+  if (!list.length || !GROUND_MAP_POS) return '';
+  var notDone = function (r) { return r.games.some(function (x) { return !isDone(r.kind === 'final' ? x.f : x); }); };
+  if (!list.some(function (r) { return r.key === MAP_ROUND; })) MAP_ROUND = (list.filter(notDone)[0] || list[list.length - 1]).key;
+  var cur = list.filter(function (r) { return r.key === MAP_ROUND; })[0], info = {};
+  cur.games.forEach(function (x) {
+    var m = cur.kind === 'final' ? x.f : x, live = isLive(m), done = isDone(m);
+    var a = cur.kind === 'final' ? x.first : { code: m.first }, b = cur.kind === 'final' ? x.third : { code: m.third };
+    var sc = live || done;
+    info[m.ground] = {
+      state: live ? 'live' : done ? 'done' : 'next',
+      head: (cur.kind === 'final' ? m.id + ' ' : '') + (live ? '● 試合中' : done ? '終了' : m.time + '〜'),
+      a: shortTeam(a.code, a), b: shortTeam(b.code, b),
+      sa: sc ? (num(m.s1) || 0) : '', sb: sc ? (num(m.s3) || 0) : '',
+      win: done && num(m.s1) > num(m.s3) ? 'a' : done && num(m.s3) > num(m.s1) ? 'b' : '',
+      foot: cur.kind === 'prelim' && m.umpire ? '審判 ' + (entryOf(m.umpire) ? shortTeam(m.umpire) : m.umpire) : ''
+    };
+  });
+  var empty = Object.keys(GROUND_MAP_POS.grounds).filter(function (g) { return !info[g]; });
+  return '<h2 class="sec">グラウンドと対戦</h2>' + seg('mapr', MAP_ROUND, list.map(function (r) { return [r.key, r.label]; })) +
+    '<div class="card gmap-card games"><div class="gmap-wrap">' + gameMapSvg(info, false) + '</div>' +
+    '<div class="muted" style="margin-top:6px">' + esc(cur.key.charAt(0) === 'F' ? cur.label : cur.key) + '　' + esc(cur.time) + '〜' +
+    (empty.length ? '　' + empty.map(function (g) { return ground(g); }).join('・') + 'は試合なし' : '') + '</div></div>';
 }
 /** 共有ドライブの資料（委員のみ）。スプシの「資料リンク」シートでチェックしたものを、フォルダごとに出す */
 function driveLinksHtml() {
@@ -1801,6 +1910,7 @@ function bindView() {
       var k = b.dataset.seg, val = b.dataset.val;
       if (k === 'game') { GAME_MODE = val; if (val === 'now') loadLive(); }
       if (k === 'doc') DOC_MODE = val;
+      if (k === 'mapr') MAP_ROUND = val;
       render();
     };
   });
