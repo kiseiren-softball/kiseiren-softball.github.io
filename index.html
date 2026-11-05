@@ -426,6 +426,9 @@ var PRELIM_MIN = 40, SEMI_MIN = 40, FINAL_MIN = 60; // 設定シートの値で�
 var LIVE_GROUND_KEY = 'softball_ground';
 var FIRST_LOAD = true;
 var LIVE_BUSY = 0;     // 記録係の送信中の件数（この間は自動更新しない）
+var LIVE_Q = [];       // 記録係の送信待ち。1台から同時にいくつも送らないよう、前の返事が来てから次を送る（11/6）
+var LIVE_SEQ = 0;      // 押すたびに進める。押す前に頼んだ自動更新の返事で、画面を古い点数に戻さないため
+var RENDER_PENDING = false; // プルダウンなどを操作中で、書き直しを後回しにしている
 var CLOCK_OFFSET = 0;  // サーバーの時計 − このスマホの時計（ミリ秒）。試合時間のタイマーを全員でそろえるため
 var ICONS = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
@@ -474,7 +477,7 @@ function load(silent) {
   } else if (!silent) {
     document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
   }
-  server('getData', [STAFF_KEY], function (data) {
+  server('getData', [STAFF_KEY, DEV], function (data) {
     saveSnap(data);
     STALE = false;
     showStale('');
@@ -486,8 +489,10 @@ function load(silent) {
 }
 /** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる */
 function loadLive() {
-  if (ONLINE) server('getLive', [STAFF_KEY], onLive, function () {});
-  else mockGetData(onLive);
+  var seq = LIVE_SEQ;
+  var ok = function (d) { if (seq === LIVE_SEQ && !LIVE_BUSY) onLive(d); }; // 待っている間に押していたら、この返事は古い
+  if (ONLINE) server('getLive', [STAFF_KEY, DEV], ok, function () {});
+  else mockGetData(ok);
 }
 function onLive(d) {
   if (!D) return;
@@ -499,8 +504,18 @@ function onLive(d) {
     if (cur) { cur.name = e.name; cur.rankAdj = e.rankAdj; } else D.entries.push(e);
   });
   D.fetchedAt = d.fetchedAt;
+  softRender();
+}
+/** 自動で読み直したときの書き直し。プルダウン・入力欄を操作中なら、離れるまで待つ（開いたプルダウンが閉じないように） */
+function softRender() {
+  var a = document.activeElement;
+  if (a && /^(SELECT|INPUT|TEXTAREA)$/.test(a.tagName) && document.getElementById('view').contains(a)) { RENDER_PENDING = true; return; }
+  RENDER_PENDING = false;
   render();
 }
+document.addEventListener('focusout', function () {
+  if (RENDER_PENDING) setTimeout(function () { if (RENDER_PENDING) softRender(); }, 300);
+});
 function isNow() { return TAB === 'games' && GAME_MODE === 'now'; }
 /** サーバーの関数を呼ぶ。GAS の画面なら google.script.run、外に置いた画面なら fetch（ログイン情報は送らない） */
 function server(fn, args, ok, ng) {
@@ -545,7 +560,7 @@ function onData(data) {
   bar.hidden = !(D.staff && rehearsal());
   bar.textContent = '前日までは練習です。点数・記録は自由に入れてOK（参加者には見えません）';
   buildTabs();
-  render();
+  softRender();
 }
 
 /* PCでの見た目確認用（preview/seed_data.js）。サーバーの getData と同じ絞り込みをまねる */
@@ -558,6 +573,9 @@ function mockGetData(cb) {
     delete data.settings.staffKey;
     data.staff = !!staff;
     data.ground = !staff && gm ? +gm[1] : 0;
+    data.matches.concat(data.finals).forEach(function (m) { // サーバーの markOwners_ と同じ
+      m.owned = !!m.owner; m.mine = !!(m.owner && m.owner === DEV); delete m.owner;
+    });
     data.fetchedAt = '見本データ';
     if (!staff) {
       delete data.settings.staffNotice;
@@ -626,9 +644,27 @@ function mockClearRecords(cb) {
   mockGetData(cb);
 }
 /* 見本データで記録係の操作をまねる（サーバーの liveUpdate と同じ動き） */
-function mockLiveUpdate(kind, id, op, arg, who) {
-  if (D.ground && !groundAllows(kind, id, op)) throw new Error('グラウンド' + D.ground + 'の今の試合ではないため、入力できません');
+function mockLiveUpdate(kind, id, op, arg, who, cb) {
   var m = (kind === 'final' ? MOCK.finals : MOCK.matches).filter(function (x) { return x.id === id; })[0];
+  if (op !== 'reset' && kind === 'final') { // サーバーの checkOrder_ と同じ
+    if ([m.first, m.third].some(function (t) { return /位$/.test(t); })) {
+      var left = MOCK.matches.filter(function (x) { return stateOf(x) !== '終了'; }).length;
+      if (left) throw new Error('予選がすべて終わってから入力できます（予選の残り ' + left + ' 試合）');
+    }
+    [m.first, m.third].forEach(function (t) {
+      var r = String(t).match(/^(.+?)(勝者|敗者)$/), src = r && MOCK.finals.filter(function (f) { return f.id === r[1]; })[0];
+      if (src && stateOf(src) !== '終了') throw new Error(r[1] + 'が終わってから入力できます');
+    });
+  }
+  if (D.ground) { // サーバーの checkGround_・checkOwner_ と同じ
+    if (!groundAllows(kind, id, op)) throw new Error('グラウンド' + D.ground + 'の今の試合ではないため、入力できません');
+    var owner = m.owner || '', st = m.status;
+    if (op === 'takeover' && st !== '試合中') throw new Error('試合中の試合だけ引き継げます');
+    if (op === 'start' && owner && owner !== DEV && st === '試合中') throw new Error('この試合はほかのスマホで記録中です');
+    if (op === 'reopen' && owner && owner !== DEV) throw new Error('この試合は、記録したスマホか委員用URLで直してください');
+    if (['takeover', 'start', 'reopen'].indexOf(op) < 0 && owner !== DEV) throw new Error('この試合はほかのスマホで記録中です');
+    if (op === 'start' || op === 'takeover') m.owner = DEV;
+  }
   var n = function (v) { return v === '' || v == null ? 0 : +v; };
   if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg === '1塁' || arg === '3塁') m.top = arg; m.startedAt = m.startedAt || Date.now(); m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
   if (op === 'top') m.top = arg;
@@ -643,9 +679,9 @@ function mockLiveUpdate(kind, id, op, arg, who) {
     m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); m.status = '終了';
   }
   if (op === 'reopen') { m.status = '試合中'; if (kind === 'final') m.winnerAdj = ''; }
-  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; if (kind === 'final') m.winnerAdj = ''; }
+  if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; m.owner = ''; if (kind === 'final') m.winnerAdj = ''; }
   m.by = who; m.at = '見本';
-  mockGetData(function (d) { LIVE_BUSY = Math.max(0, LIVE_BUSY - 1); onLive(d); });
+  mockGetData(cb);
 }
 
 /* ---------- 日付まわり ---------- */
@@ -740,6 +776,17 @@ function allNames() {
 }
 function store(key, v) { try { if (v === undefined) return localStorage.getItem(key) || ''; localStorage.setItem(key, v); } catch (e) { return ''; } }
 function getMe() { return store(STORE_KEY); }
+/** このスマホの番号（グラウンド用QRで、試合開始を押したスマホを見分ける。11/6）。見本データでは ?dev=… で別のスマホのふりができる */
+var DEV = (function () {
+  if (Q.get('dev')) return Q.get('dev');
+  var v = store('softball_dev');
+  if (!v) {
+    v = '';
+    for (var i = 0; i < 16; i++) v += 'abcdefghijkmnpqrstuvwxyz23456789'.charAt(Math.floor(Math.random() * 32));
+    store('softball_dev', v);
+  }
+  return v;
+})();
 function setMe(v) { store(STORE_KEY, v); }
 
 /* ---------- 共通部品 ---------- */
@@ -1296,9 +1343,10 @@ function nowCard(b, canRec) {
     if (m.startedAt) h += timerHtml(+m.startedAt, x.kind === 'final' ? minutesOf(m) : PRELIM_MIN);
   }
   if (x.kind === 'match' && m.umpire) h += '<div class="muted" style="text-align:center">審判：' + (entryOf(m.umpire) ? teamHtml(m.umpire) : esc(m.umpire)) + '</div>';
-  if (canRec && s1.code && s3.code) h += recPanel(x);
-  // 終了の取り消しは、そのグラウンドの次の試合が始まる前だけ
-  if (b.last) h += lastLine(b.last, canRec && !live);
+  if (D.staff && live && m.owned) h += '<div class="muted" style="text-align:center;font-size:11px">記録中：グラウンド用QRのスマホ（委員用からも直せます）</div>';
+  if (canRec) h += recBlock(x, s1, s3, live);
+  // 終了の取り消しは、そのグラウンドの次の試合が始まる前だけ。グラウンド用QRは、その試合を記録したスマホだけ
+  if (b.last) h += lastLine(b.last, canRec && !live && (!D.ground || isMine(b.last.m) || !b.last.m.owned));
   if (b.rest) h +='<div class="muted" style="text-align:right">このあと ' + b.rest + ' 試合</div>';
   return h + '</div>';
 }
@@ -1325,6 +1373,23 @@ function lastLine(x, canUndo) {
   return '<div class="now-last">前の試合：' + teamHtml(s1.code, s1) + ' <b>' + num(m.s1) + '-' + num(m.s3) + '</b> ' + teamHtml(s3.code, s3) +
     (canUndo && !isBye(m) ? '<div class="rrow small"><button class="rbtn link" data-live="reopen" data-kind="' + x.kind + '" data-id="' + esc(m.id) + '">' +
       'この試合の「試合終了」を取り消す（試合中に戻す）</button></div>' : '') + '</div>';
+}
+/** グラウンド用QRで、この試合を自分のスマホが担当しているか（古いサーバーは担当を返さないので、そのときは今までどおり） */
+function isMine(m) { return m.mine === undefined || !!m.mine; }
+/** 記録係の欄：準決勝・決勝の条件、グラウンド用QRの担当を見てから、操作ボタンを出す（11/6） */
+function recBlock(x, s1, s3, live) {
+  if (!s1.code || !s3.code || (x.kind === 'final' && !live && (s1.prov || s3.prov))) {
+    if (x.kind !== 'final') return '';
+    var wait = (s1.from || s3.from) ? '準決勝が終わると始められます' : '予選がすべて終わると始められます';
+    return '<div class="rec"><div class="muted" style="text-align:center">' + wait + '（対戦チームが決まるまで入力できません）</div></div>';
+  }
+  if (D.ground && live && !isMine(x.m)) {
+    return '<div class="rec"><div class="muted" style="text-align:center;margin-bottom:6px">' +
+      (x.m.owned ? 'この試合はほかのスマホで記録中です' : 'この試合は委員用URLで始められました') + '（このスマホは見るだけ）</div>' +
+      '<div class="rrow small"><button class="rbtn link" data-live="takeover" data-kind="' + x.kind + '" data-id="' + esc(x.m.id) + '">' +
+      'この試合の記録を、このスマホに引き継ぐ</button></div></div>';
+  }
+  return recPanel(x);
 }
 /** 記録係の操作ボタン */
 function recPanel(x) {
@@ -1372,6 +1437,7 @@ function liveOp(el) {
   }
   if (op === 'reset' && !confirm('この試合の点数・状態を消して、試合前に戻しますか？')) return;
   if (op === 'reopen' && !confirm('この試合の「試合終了」を取り消して、試合中に戻しますか？\n（点数と回はそのまま。直したら、もう一度「試合終了」を押してください）')) return;
+  if (op === 'takeover' && !confirm('この試合の記録を、このスマホに引き継ぎますか？\n（前のスマホでは入力できなくなります）')) return;
   var n = function (v) { return num(v) || 0; };
   if (m) { // 先に画面だけ変える
     if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg) m.top = arg; m.startedAt = m.startedAt || Date.now() + CLOCK_OFFSET; m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
@@ -1380,23 +1446,32 @@ function liveOp(el) {
     if (op === 'inning') m.inning = stepInning(m.inning, arg);
     if (op === 'finish') { m.status = '終了'; if (arg) m.winnerAdj = arg; }
     if (op === 'reopen') { m.status = '試合中'; if (kind === 'final') m.winnerAdj = ''; }
-    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; }
+    if (op === 'reset') { m.s1 = ''; m.s3 = ''; m.status = ''; m.inning = ''; m.top = ''; m.startedAt = ''; m.owned = false; m.mine = false; }
+    if ((op === 'start' || op === 'takeover') && D.ground) { m.owned = true; m.mine = true; }
     render();
   }
   LIVE_BUSY++;
-  var who = getMe() || (D.ground ? groundRecName() : '記録係');
-  if (ONLINE) {
-    server('liveUpdate', [STAFF_KEY, kind, id, op, arg, who], function (d) {
-      LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
-      if (!LIVE_BUSY) onLive(d); // 連打中は最後の結果だけ反映
-    }, function (e) {
-      LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
-      alert('送信できませんでした：' + (e && e.message || e) + '\n画面を最新にします。');
-      loadLive();
-    });
-  } else {
-    try { mockLiveUpdate(kind, id, op, arg, who); } catch (e) { LIVE_BUSY = 0; alert(e.message); loadLive(); }
-  }
+  LIVE_SEQ++;
+  LIVE_Q.push({ kind: kind, id: id, op: op, arg: arg, who: getMe() || (D.ground ? groundRecName() : '記録係') });
+  if (LIVE_Q.length === 1) liveNext();
+}
+/** 送信待ちの先頭を送る。返事が来たら次を送り、全部送り終えたときの返事で画面を最新にする */
+function liveNext() {
+  var job = LIVE_Q[0];
+  if (!job) return;
+  var done = function (d) {
+    LIVE_Q.shift();
+    LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
+    if (LIVE_Q.length) liveNext();
+    else { LIVE_BUSY = 0; onLive(d); }
+  };
+  var fail = function (e) {
+    LIVE_Q = []; LIVE_BUSY = 0; LIVE_SEQ++;
+    alert('送信できませんでした：' + (e && e.message || e) + '\n画面を最新にします。');
+    loadLive();
+  };
+  if (ONLINE) server('liveUpdate', [STAFF_KEY, job.kind, job.id, job.op, job.arg, job.who, DEV], done, fail);
+  else { try { mockLiveUpdate(job.kind, job.id, job.op, job.arg, job.who, done); } catch (e) { fail(e); } }
 }
 /** ホームのアトラクション欄：当日はランキング上位3位、それ以外は紹介 */
 function homeAttractions(n) {
