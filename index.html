@@ -274,6 +274,15 @@
   .attr dt { color: var(--sub); font-size: 12px; font-weight: 700; padding-top: 2px; }
   .attr dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .attr dd.tbd-text { color: #9aa4b1; }
+  /* ホームラン競走のブロック分け（くじの記号＝ブロック。配布の「アトラクションのご案内」と同じ色） */
+  .hr-title { font-size: 13px; font-weight: 800; color: var(--brand); margin: 14px 0 6px; }
+  .hr-blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .hr-blk { border: 1px solid #f0c9ad; border-radius: 8px; overflow: hidden; font-size: 13px; background: #fff; }
+  .hr-blk .h { background: #fce4d6; color: #c46b2f; font-weight: 800; padding: 4px 8px; }
+  .hr-blk .h small { font-weight: 700; margin-left: 4px; }
+  .hr-blk .t { padding: 4px 8px; border-top: 1px solid #f6e0d1; overflow-wrap: anywhere; }
+  .hr-final { margin-top: 6px; background: #fff2cc; border: 1px solid #f1dc9a; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+  .hr-final b { color: #8a6200; }
   .rank-title { font-size: 13px; font-weight: 800; color: var(--brand); margin: 14px 0 4px; display: flex; gap: 6px; align-items: center; }
   .rank-row { display: grid; grid-template-columns: 34px 1fr auto auto; gap: 6px; padding: 7px 0; border-top: 1px solid var(--line); align-items: center; font-size: 14px; }
   .rank-row:first-of-type { border-top: 0; }
@@ -1689,6 +1698,7 @@ function attrCard(a) {
     (a.status ? '<span class="st ' + (a.status === '決定' ? 'st-決定' : 'st-pend') + '">' + esc(a.status) + '</span>' : '') + '</div>' +
     (rows.length ? '<dl>' + rows.map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('') + '</dl>'
       : '<div class="muted" style="margin-top:6px">くわしい内容は決まり次第お知らせします</div>');
+  h += hrBlocksHtml(a);
   if (a.recordType && a.recordType !== 'なし') {
     var list = attrRanking(a);
     h += '<div class="rank-title">🏆 ランキング</div>';
@@ -1702,6 +1712,17 @@ function attrCard(a) {
     if (D.staff) h += recForm(a);
   }
   return h + '</div>';
+}
+/** ホームラン競走のブロック分け（第38回：田口案4.5。チームの記号＝キャプテン会議のくじ。名前は参加チームから） */
+var HR_BLOCKS = [['A', ['A', 'B', 'C', 'D']], ['B', ['E', 'F', 'G']], ['C', ['H', 'I', 'M']], ['D', ['J', 'K', 'L']]];
+function hrBlocksHtml(a) {
+  if (a.id !== 'HR') return '';
+  return '<div class="hr-title">ブロック分け（A→B→C→D→決勝の順）</div><div class="hr-blocks">' +
+    HR_BLOCKS.map(function (b) {
+      return '<div class="hr-blk"><div class="h">' + b[0] + 'ブロック<small>（' + b[1].length * 2 + '名）</small></div>' +
+        b[1].map(function (c) { return '<div class="t">' + teamHtml(c) + '</div>'; }).join('') + '</div>';
+    }).join('') + '</div>' +
+    '<div class="hr-final"><b>決勝（4名）</b>：各ブロックの1位の4名が2球ずつ打ち、いちばん飛ばした人が優勝</div>';
 }
 function recForm(a) {
   var f = RF[a.id] || (RF[a.id] = { name: '', team: '', cat: '', value: 0, m: '', cm: '' });
