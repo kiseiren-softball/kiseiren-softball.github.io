@@ -734,8 +734,14 @@ function prepOver() { return todayStr() >= D.eventDate; }
 function rehearsal() { return todayStr() < D.eventDate; }
 /** 大会当日に、前日までの練習の点数・記録が残っているか（入力時刻が今日でないもの） */
 function leftoverRecords() {
-  var t = toD(todayStr()), md0 = (t.getMonth() + 1) + '/' + t.getDate() + ' ';
-  var old = function (x) { return x.at && String(x.at).indexOf(md0) !== 0; };
+  // 試合は開始時刻（日本時間）、なければ入力時刻の「月/日」を数字で比べる。入力時刻はあるのに日付が読めないものは「残っている」に数える（11/11）
+  var t = toD(todayStr()), tm = t.getMonth() + 1, td = t.getDate();
+  var old = function (x) {
+    if (num(x.startedAt)) { var j = new Date(+x.startedAt + 9 * 3600000); return j.getUTCMonth() + 1 !== tm || j.getUTCDate() !== td; }
+    if (!x.at) return false; // 日付の手がかりがない（スプシで直接入れたなど）ものは数えない
+    var m = String(x.at).trim().match(/^(\d{1,2})\/(\d{1,2})(?!\d)/);
+    return !m || +m[1] !== tm || +m[2] !== td;
+  };
   return D.matches.concat(D.finals).filter(function (m) { return !isBye(m) && (m.status || m.s1 !== '' && m.s1 != null) && old(m); }).length +
     D.attractionRecords.filter(old).length;
 }
@@ -994,7 +1000,10 @@ function resolveFinals(S) {
     [f.first, f.third].forEach(function (t) { var m = String(t || '').match(/^予選(\d+)位$/); if (m) cut = Math.max(cut, +m[1]); });
   });
   // 準決勝に進む順位（上位 cut チーム）の中か、その境目に「同率」（ジャンケン未入力）が残っていたら、組み合わせは確定しない（11/11 東さんレビュー）
-  var tieWait = S.done && S.rows.slice(0, cut).some(function (r) { return r.tie; });
+  // （「予選N位」を使う試合が全部始まって、チームが確定していれば、もう待たない）
+  var tieWait = S.done && S.rows.slice(0, cut).some(function (r) { return r.tie; }) &&
+    D.finals.some(function (f) { return usesRank(f) && !(f.fixed1 && f.fixed3); });
+  function usesRank(f) { return /^予選\d+位$/.test(String(f.first || '').trim()) || /^予選\d+位$/.test(String(f.third || '').trim()); }
   function src(text) {
     text = String(text || '').trim();
     var m = text.match(/^予選(\d+)位$/);
@@ -1017,11 +1026,18 @@ function resolveFinals(S) {
     if (entryOf(text)) return { code: text, label: text };
     return { code: null, label: text || '未定' };
   }
+  // 試合を始めた時点でサーバーが確定したチーム（確定1塁・確定3塁）があれば、それを使う（あとで予選の点数が変わっても変えない。11/11）
+  function fixedSide(s, code) {
+    code = String(code || '').trim();
+    if (!code || !entryOf(code)) return s;
+    s.code = code; s.prov = false; s.tieWait = false;
+    return s;
+  }
   function res(id) {
     if (memo[id]) return memo[id];
     if (busy[id]) return null; // 循環参照の防止
     busy[id] = true;
-    var f = byId[id], a = src(f.first), b = src(f.third), s1 = num(f.s1), s3 = num(f.s3), winner = null, tie = false;
+    var f = byId[id], a = fixedSide(src(f.first), f.fixed1), b = fixedSide(src(f.third), f.fixed3), s1 = num(f.s1), s3 = num(f.s3), winner = null, tie = false;
     if (isDone(f) && a.code && b.code) {
       if (s1 > s3) winner = 'first';
       else if (s1 < s3) winner = 'third';
