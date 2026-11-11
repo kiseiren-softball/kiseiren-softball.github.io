@@ -41,6 +41,7 @@
   .drive-link { display: block; padding: 8px 0; border-top: 1px solid var(--line); color: var(--brand); font-size: 14px; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
   .drive-link::after { content: " →"; color: var(--sub); }
   .stale-bar { margin: 0 -16px; padding: 4px 16px; background: #f1f3f5; color: var(--sub); font-size: 12px; text-align: center; }
+  .stale-bar.err { background: var(--late-soft); color: var(--late); font-weight: 700; font-size: 13px; padding: 8px 16px; }
   .rehearsal-bar { margin: 0 -16px; padding: 6px 16px; background: #fff4e6; color: #a34700; border-bottom: 1px solid #ffd8a8;
     font-size: 12px; font-weight: 700; text-align: center; }
   header.top .reload { background: rgba(255,255,255,.18); border: 0; border-radius: 99px; padding: 4px 12px; font-size: 13px; color: #fff; cursor: pointer; }
@@ -461,7 +462,10 @@ var RF = {};           // アトラクション記録の入力中の内容 {ア�
 // （サーバーの読み込みは数秒〜10秒ほどかかることがあるため）。委員用・参加者用で分けて残す
 // 委員用・グラウンド用（キーごと）・参加者用で分けて残す
 var SNAP_KEY = 'softball_snap_' + (STAFF_KEY ? 'k' + STAFF_KEY.slice(0, 6) : 'pub');
-var STALE = false;     // 前回のデータを表示中（最新の取得中）
+var STALE = false;     // 前回のデータを表示中（最新の取得中）。送信に失敗して読み直し中のときも
+var FETCH_N = 0;       // 読み込みを頼んだ順の番号（全体・速報の共通）
+var FETCH_APPLIED = 0; // 画面に出した返事の番号。これより前に頼んだ返事は古いので捨てる
+var LOAD_LAST = 0;     // いちばん新しい全体読み込みの番号
 function saveSnap(data) {
   try { localStorage.setItem(SNAP_KEY, JSON.stringify({ at: Date.now(), data: data })); } catch (e) { /* 残せなくても動く */ }
 }
@@ -475,6 +479,7 @@ function showStale(msg) {
   var bar = document.getElementById('staleBar');
   bar.hidden = !msg;
   bar.textContent = msg || '';
+  bar.className = 'stale-bar' + (/できませんでした/.test(msg || '') ? ' err' : ''); // 読めない・送れないときは赤で目立たせる
 }
 function load(silent) {
   if (!ONLINE) { mockGetData(onData); return; }
@@ -486,7 +491,15 @@ function load(silent) {
   } else if (!silent) {
     document.getElementById('view').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中…</div>';
   }
+  var n = ++FETCH_N, seq = LIVE_SEQ;
+  LOAD_LAST = n;
   server('getData', [STAFF_KEY, DEV], function (data) {
+    // 頼んだあとに新しい点数をもう表示している・記録ボタンを押していたら、この返事は古い（11/11 東さんレビュー）。最新を頼み直す
+    if (n <= FETCH_APPLIED || seq !== LIVE_SEQ || LIVE_BUSY) {
+      if (n === LOAD_LAST) setTimeout(function () { if (n === LOAD_LAST) load(true); }, 1500);
+      return;
+    }
+    FETCH_APPLIED = n;
     saveSnap(data);
     STALE = false;
     showStale('');
@@ -496,15 +509,24 @@ function load(silent) {
     else if (!silent) onError(e);
   });
 }
-/** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる */
-function loadLive() {
-  var seq = LIVE_SEQ;
-  var ok = function (d) { if (seq === LIVE_SEQ && !LIVE_BUSY) onLive(d); }; // 待っている間に押していたら、この返事は古い
-  if (ONLINE) server('getLive', [STAFF_KEY, DEV], ok, function () {});
+/** 「いま」の自動更新用。試合・順位に必要な分だけを読んで、今のデータに重ねる。読めなかった・古かったときは onMiss */
+function loadLive(onMiss) {
+  var seq = LIVE_SEQ, n = ++FETCH_N, miss = onMiss || function () {};
+  var ok = function (d) { // 待っている間に押していた・もっと新しい返事を表示済みなら、この返事は古い
+    if (seq === LIVE_SEQ && !LIVE_BUSY && n > FETCH_APPLIED) { FETCH_APPLIED = n; onLive(d); } else miss();
+  };
+  if (ONLINE) server('getLive', [STAFF_KEY, DEV], ok, miss);
   else mockGetData(ok);
+}
+/** 送信に失敗したあと：記録ボタンを隠したまま、最新の点数が読めるまで5秒ごとに読み直す（11/11 東さんレビュー） */
+var RECOVER_T = null;
+function recoverLive() {
+  clearTimeout(RECOVER_T);
+  loadLive(function () { if (STALE) RECOVER_T = setTimeout(recoverLive, 5000); });
 }
 function onLive(d) {
   if (!D) return;
+  if (STALE) { STALE = false; showStale(''); } // 試合の最新が読めたので、記録ボタンを戻す
   if (d.serverNow) CLOCK_OFFSET = d.serverNow - Date.now();
   D.matches = d.matches || [];
   D.finals = d.finals || [];
@@ -966,14 +988,19 @@ function standings() {
 
 /** 決勝：「予選1位」「1組1位」「準決勝1勝者」などの書き方からチームを決める */
 function resolveFinals(S) {
-  var byId = {}, memo = {}, busy = {};
-  D.finals.forEach(function (f) { byId[f.id] = f; });
+  var byId = {}, memo = {}, busy = {}, cut = 0;
+  D.finals.forEach(function (f) {
+    byId[f.id] = f;
+    [f.first, f.third].forEach(function (t) { var m = String(t || '').match(/^予選(\d+)位$/); if (m) cut = Math.max(cut, +m[1]); });
+  });
+  // 準決勝に進む順位（上位 cut チーム）の中か、その境目に「同率」（ジャンケン未入力）が残っていたら、組み合わせは確定しない（11/11 東さんレビュー）
+  var tieWait = S.done && S.rows.slice(0, cut).some(function (r) { return r.tie; });
   function src(text) {
     text = String(text || '').trim();
     var m = text.match(/^予選(\d+)位$/);
     if (m) {
       var r = S.rows[+m[1] - 1];
-      return S.played > 0 && r ? { code: r.code, label: text, prov: !S.done } : { code: null, label: text };
+      return S.played > 0 && r ? { code: r.code, label: text, prov: !S.done || tieWait, tieWait: tieWait } : { code: null, label: text };
     }
     m = text.match(/^(\d+)組(\d+)位$/);
     if (m) {
@@ -1025,7 +1052,7 @@ function resolveFinals(S) {
   for (var i = 1; i <= maxD; i++) cols.push(main.filter(function (g) { return depth[g.f.id] === i; }));
   var top = cols.length && cols[cols.length - 1].length === 1 ? cols[cols.length - 1][0] : null;
   var third = conso.length === 1 ? conso[0] : null;
-  return { games: games, cols: cols, conso: conso, top: top, third: third };
+  return { games: games, cols: cols, conso: conso, top: top, third: third, tieWait: tieWait };
 }
 
 /* ================================================================ 試合の表示 */
@@ -1128,6 +1155,7 @@ function gamesFinal(S) {
   if (!D.finals.length) return '<div class="empty">決勝トーナメントはまだ登録されていません</div>';
   var R = resolveFinals(S), h = '';
   if (!S.done) h += '<div class="info">' + (S.played ? '予選の途中経過で組み合わせを表示しています（<b>暫定</b>）。' : '予選の結果が入ると、自動で組み合わせが決まります。') + '</div>';
+  else if (R.tieWait) h += '<div class="info"><b style="color:var(--late)">予選の順位に「同率」があるため、組み合わせは暫定です。</b>ジャンケンの結果が入ると決まります。</div>';
   h += '<div class="bracket">' + R.cols.map(function (col, i) {
     var title = i === R.cols.length - 1 && col.length === 1 ? '決勝' : (R.cols.length - i === 2 ? '準決勝' : (i + 1) + '回戦');
     return '<div class="bcol"><div class="bcol-title">' + title + '</div>' + col.map(function (g) { return finalCard(g, true); }).join('') + '</div>';
@@ -1262,10 +1290,14 @@ function homeGames() {
   var h = D.staff
     ? '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px;background:#e8590c" data-go="games" data-mode="now">▶ 試合の記録（記録係はここから）</button>'
     : '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" data-go="games" data-mode="now">⚾ 試合速報（いまの試合と点数）</button>';
-  var live = D.matches.filter(isLive);
-  if (live.length) h += '<h2 class="sec">いま試合中</h2>' + live.map(prelimCard).join('');
-  var recent = D.matches.filter(function (m) { return !isBye(m) && isDone(m); }).slice(-4).reverse();
-  if (recent.length) h += '<h2 class="sec">最新の結果</h2>' + recent.map(prelimCard).join('');
+  // 予選のあとに準決勝・決勝・3位決定戦も並べる（11/11 東さんレビュー）
+  var all = D.matches.filter(function (m) { return !isBye(m); }).map(function (m) { return { m: m, card: function () { return prelimCard(m); } }; })
+    .concat(resolveFinals(standings()).games.map(function (g) { return { m: g.f, card: function () { return finalCard(g); } }; }));
+  var card = function (x) { return x.card(); };
+  var live = all.filter(function (x) { return isLive(x.m); });
+  if (live.length) h += '<h2 class="sec">いま試合中</h2>' + live.map(card).join('');
+  var recent = all.filter(function (x) { return isDone(x.m); }).slice(-4).reverse();
+  if (recent.length) h += '<h2 class="sec">最新の結果</h2>' + recent.map(card).join('');
   h += '<div class="btns"><button class="btn ghost" data-go="games" data-mode="table">順位表</button><button class="btn ghost" data-go="games" data-mode="final">決勝トーナメント</button></div>';
   return h;
 }
@@ -1325,7 +1357,7 @@ function viewNow() {
 function clearRecords() {
   if (SAVING || !confirm('全試合の点数・状態と、アトラクションの記録を全部消して、試合前に戻しますか？\n（組み合わせ・チーム名は残ります）')) return;
   SAVING = true; LIVE_BUSY++; render();
-  var done = function (d) { SAVING = false; LIVE_BUSY = 0; onData(d); toast('記録を消しました'); };
+  var done = function (d) { SAVING = false; LIVE_BUSY = 0; FETCH_APPLIED = FETCH_N; onData(d); toast('記録を消しました'); };
   var ng = function (e) { SAVING = false; LIVE_BUSY = 0; render(); alert('消せませんでした：' + (e && e.message || e)); };
   if (ONLINE) server('clearRecords', [STAFF_KEY], done, ng);
   else mockClearRecords(done);
@@ -1377,10 +1409,18 @@ function tickTimers() {
     el.className = 'timer' + (t.cls ? ' ' + t.cls : '');
   });
 }
+/** 予選の順位で決まる試合（準決勝）が一つでも始まったか。始まったら予選の結果は画面から直さない（11/11 東さんレビュー） */
+function semisStarted() {
+  return D.finals.some(function (f) {
+    return (/^予選\d+位$/.test(String(f.first || '').trim()) || /^予選\d+位$/.test(String(f.third || '').trim())) && stateOf(f) !== '未開始';
+  });
+}
 function lastLine(x, canUndo) {
   var m = x.m, s1 = nowSide(x, 'first'), s3 = nowSide(x, 'third');
+  var locked = canUndo && x.kind === 'match' && semisStarted();
   return '<div class="now-last">前の試合：' + teamHtml(s1.code, s1) + ' <b>' + num(m.s1) + '-' + num(m.s3) + '</b> ' + teamHtml(s3.code, s3) +
-    (canUndo && !isBye(m) ? '<div class="rrow small"><button class="rbtn link" data-live="reopen" data-kind="' + x.kind + '" data-id="' + esc(m.id) + '">' +
+    (locked ? '<div class="muted" style="font-size:11px">準決勝が始まったため、予選の結果は直せません（必要なときは委員長へ）</div>'
+      : canUndo && !isBye(m) ? '<div class="rrow small"><button class="rbtn link" data-live="reopen" data-kind="' + x.kind + '" data-id="' + esc(m.id) + '">' +
       'この試合の「試合終了」を取り消す（試合中に戻す）</button></div>' : '') + '</div>';
 }
 /** グラウンド用QRで、この試合を自分のスマホが担当しているか（古いサーバーは担当を返さないので、そのときは今までどおり） */
@@ -1389,7 +1429,8 @@ function isMine(m) { return m.mine === undefined || !!m.mine; }
 function recBlock(x, s1, s3, live) {
   if (!s1.code || !s3.code || (x.kind === 'final' && !live && (s1.prov || s3.prov))) {
     if (x.kind !== 'final') return '';
-    var wait = (s1.from || s3.from) ? '準決勝が終わると始められます' : '予選がすべて終わると始められます';
+    var wait = (s1.tieWait || s3.tieWait) ? '予選の順位に「同率」があります。ジャンケンの結果をスプシの「順位補正」に入れると始められます'
+      : (s1.from || s3.from) ? '準決勝が終わると始められます' : '予選がすべて終わると始められます';
     return '<div class="rec"><div class="muted" style="text-align:center">' + wait + '（対戦チームが決まるまで入力できません）</div></div>';
   }
   if (D.ground && live && !isMine(x.m)) {
@@ -1472,12 +1513,16 @@ function liveNext() {
     LIVE_Q.shift();
     LIVE_BUSY = Math.max(0, LIVE_BUSY - 1);
     if (LIVE_Q.length) liveNext();
-    else { LIVE_BUSY = 0; onLive(d); }
+    else { LIVE_BUSY = 0; FETCH_APPLIED = FETCH_N; onLive(d); } // 送信の返事がいちばん新しい
   };
   var fail = function (e) {
     LIVE_Q = []; LIVE_BUSY = 0; LIVE_SEQ++;
-    alert('送信できませんでした：' + (e && e.message || e) + '\n画面を最新にします。');
-    loadLive();
+    // 画面の点数は送れていないかもしれない：最新が読めるまで記録ボタンを隠して、赤い帯で知らせる（11/11 東さんレビュー）
+    STALE = true;
+    showStale('送信できませんでした。最新の点数を読み直しています…（読み直せたら記録ボタンが戻ります）');
+    render();
+    alert('送信できませんでした：' + (e && e.message || e) + '\n最新の点数を読み直します。読み直せるまで記録ボタンは出ません。');
+    recoverLive();
   };
   if (ONLINE) server('liveUpdate', [STAFF_KEY, job.kind, job.id, job.op, job.arg, job.who, DEV], done, fail);
   else { try { mockLiveUpdate(job.kind, job.id, job.op, job.arg, job.who, done); } catch (e) { fail(e); } }
@@ -1790,8 +1835,8 @@ function delRec(id) {
     mockGetData(onSaved);
   }
 }
-function typingRecord() {
-  return Object.keys(RF).some(function (k) { return RF[k].name; }) ||
+function typingRecord() { // イベントの入力途中の名前は、イベント画面にいるときだけ見る（ほかの画面の自動更新を止めない。11/11 東さんレビュー）
+  return (TAB === 'event' && Object.keys(RF).some(function (k) { return RF[k].name; })) ||
     (document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName));
 }
 
@@ -2053,7 +2098,7 @@ function bindView() {
   if (cr) cr.onclick = clearRecords;
   v.querySelectorAll('[data-delrec]').forEach(function (b) { b.onclick = function () { delRec(b.dataset.delrec); }; });
 }
-function onSaved(data) { SAVING = false; onData(data); toast('保存しました'); }
+function onSaved(data) { SAVING = false; FETCH_APPLIED = FETCH_N; onData(data); toast('保存しました'); }
 document.getElementById('reloadBtn').onclick = function () { load(); };
 
 // 当日・試合タブは1分ごとに自動更新（入力中は止める）
