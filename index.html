@@ -719,14 +719,14 @@ function mockLiveUpdate(kind, id, op, arg, who, cb) {
       if (src && stateOf(src) !== '終了') throw new Error(r[1] + 'が終わってから入力できます');
     });
   }
-  if (D.ground) { // サーバーの checkGround_・checkOwner_ と同じ
+  if (!D.ground) throw new Error('委員用URLでは得点を入力できません。各グラウンドに置いてある QR コードを読み込んだスマホで入力してください');
+  { // サーバーの checkGround_・checkOwner_ と同じ
     if (!groundAllows(kind, id, op)) throw new Error('グラウンド' + D.ground + 'の今の試合ではないため、入力できません');
     var owner = m.owner || '', st = m.status;
     if (op === 'takeover' && st !== '試合中') throw new Error('試合中の試合だけ引き継げます');
     if (op === 'start' && owner && owner !== DEV && st === '試合中') throw new Error('この試合はほかのスマホで記録中です');
-    if (op === 'reopen' && owner && owner !== DEV) throw new Error('この試合は、記録したスマホか委員用URLで直してください');
     if (['takeover', 'start', 'reopen'].indexOf(op) < 0 && owner !== DEV) throw new Error('この試合はほかのスマホで記録中です');
-    if (op === 'start' || op === 'takeover') m.owner = DEV;
+    if (op === 'start' || op === 'takeover' || op === 'reopen') m.owner = DEV;
   }
   var n = function (v) { return v === '' || v == null ? 0 : +v; };
   if (op === 'start') { m.status = '試合中'; m.inning = m.inning || '1回表'; if (arg === '1塁' || arg === '3塁') m.top = arg; m.startedAt = m.startedAt || Date.now(); m.s1 = String(n(m.s1)); m.s3 = String(n(m.s3)); }
@@ -1166,7 +1166,7 @@ function noNamesInfo() {
 
 function viewGames() {
   // 委員には「記録・速報」（記録係が試合を始める場所）、参加者には「速報」
-  var h = seg('game', GAME_MODE, [D.staff || D.ground ? ['now', '記録・速報', 'rec'] : ['now', '速報'], ['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
+  var h = seg('game', GAME_MODE, [D.ground ? ['now', '記録・速報', 'rec'] : ['now', '速報'], ['rounds', '対戦表'], ['table', '順位表'], ['final', '決勝'], ['team', 'チーム別']]);
   if (GAME_MODE === 'now') return h + viewNow();
   h += noNamesInfo();
   if (!D.matches.length) return h + '<div class="empty">対戦表はまだ登録されていません</div>';
@@ -1361,8 +1361,8 @@ function doneAt(m) {
   return day * 100000 + sec;
 }
 function homeGames() {
-  var h = D.staff
-    ? '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px;background:#e8590c" data-go="games" data-mode="now">▶ 試合の記録（記録係はここから）</button>'
+  var h = D.ground // 記録ができるのはグラウンドの QR のスマホだけ（11/12）
+    ? '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px;background:#e8590c" data-go="games" data-mode="now">▶ 試合の記録（' + esc(groundRecName()) + '）</button>'
     : '<button class="btn" style="width:100%;justify-content:center;margin-top:12px;padding:14px" data-go="games" data-mode="now">⚾ 試合速報（いまの試合と点数）</button>';
   // 予選のあとに準決勝・決勝・3位決定戦も並べる（11/11 東さんレビュー）
   var all = D.matches.filter(function (m) { return !isBye(m); }).map(function (m) { return { m: m, card: function () { return prelimCard(m); } }; })
@@ -1407,25 +1407,20 @@ function nowSide(x, side) {
 }
 function viewNow() {
   // 委員用は担当グラウンドを選ぶ。グラウンド用QRはそのグラウンドに決まっている
-  var board = groundBoard(), rec = D.staff || !!D.ground, my = D.ground ? String(D.ground) : store(LIVE_GROUND_KEY);
+  // 得点を入れられるのは、各グラウンドに置いた QR を読み込んだスマホだけ（委員用URLは見るだけ。11/12 坂下さん）
+  var board = groundBoard(), rec = !!D.ground, my = D.ground ? String(D.ground) : '';
   var h = '<div class="live-head"><b>' + (rec ? '⚾ 試合の記録・速報' : '⚾ 試合速報') + '</b><span>' + (isEventDay() ? '20秒ごとに自動更新' : md(D.eventDate) + ' 開催') +
     (LAST_OK ? '・最終 ' + hhmm(LAST_OK, true) : '') + '</span></div>';
   h += noNamesInfo();
   if (isEventDay()) h += clearCard(); // 当日：練習の記録が残っていたら、いちばん上に警告
   if (D.ground) h += '<div class="rec-bar">' + esc(groundRecName()) + '：このグラウンドの今の試合だけ入力できます</div>';
-  else if (rec) {
-    h += '<div class="rec-bar">記録係：担当グラウンド <select id="groundSel"><option value="">見るだけ（入力しない）</option>' +
-      board.map(function (b) { return '<option value="' + esc(b.ground) + '"' + (b.ground === my ? ' selected' : '') + '>' + esc(ground(b.ground)) + '</option>'; }).join('') +
-      '</select></div>';
-  }
-  if (rec && !my) h += '<div class="muted" style="margin:-4px 0 8px">点数を入れるときは、上で自分の担当グラウンドを選ぶとボタンが出ます。</div>';
+  else if (D.staff) h += '<div class="info">得点は、各グラウンドに置いてある QR コードを読み込んだスマホで入力します（委員用URLでは入力できません）。</div>';
   // 前回のデータを表示している間は、点数のボタンを出さない（古い点数に足してしまわないように）
   if (rec && my && STALE) { h += '<div class="info">最新の点数を読み込み中です。数秒お待ちください（読み込めたらボタンが出ます）。</div>'; my = ''; }
   var shown = rec && my ? board.filter(function (b) { return b.ground === my; }) : board;
   if (!shown.length) return h + '<div class="empty">対戦表がまだありません</div>';
   if (shown.length > 1) h += nowMapHtml(shown);
   h += '<div class="now-grid' + (shown.length === 1 ? ' one' : '') + '">' + shown.map(function (b) { return nowCard(b, rec && !!my); }).join('') + '</div>';
-  if (rec && my && !D.ground) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドを見るときは、上で「見るだけ」に戻してください。</div>';
   if (D.ground) h += '<div class="muted" style="margin-top:8px">ほかのグラウンドの様子は「対戦表」で見られます。</div>';
   if (rehearsal()) h += clearCard();
   return h;
@@ -1461,7 +1456,7 @@ function nowCard(b, canRec) {
     if (m.startedAt) h += timerHtml(+m.startedAt, x.kind === 'final' ? minutesOf(m) : PRELIM_MIN);
   }
   if (x.kind === 'match' && m.umpire) h += '<div class="muted" style="text-align:center">審判：' + (entryOf(m.umpire) ? teamHtml(m.umpire) : esc(m.umpire)) + '</div>';
-  if (D.staff && live && m.owned) h += '<div class="muted" style="text-align:center;font-size:11px">記録中：グラウンド用QRのスマホ（委員用からも直せます）</div>';
+  if (D.staff && live && m.owned) h += '<div class="muted" style="text-align:center;font-size:11px">記録中：グラウンド用QRのスマホ</div>';
   if (canRec) h += recBlock(x, s1, s3, live);
   // 終了の取り消しは、そのグラウンドの次の試合が始まる前だけ。グラウンド用QRは、その試合を記録したスマホだけ
   if (b.last) h += lastLine(b.last, canRec && !live && (!D.ground || isMine(b.last.m) || !b.last.m.owned));
@@ -1512,7 +1507,7 @@ function recBlock(x, s1, s3, live) {
   }
   if (D.ground && live && !isMine(x.m)) {
     return '<div class="rec"><div class="muted" style="text-align:center;margin-bottom:6px">' +
-      (x.m.owned ? 'この試合はほかのスマホで記録中です' : 'この試合は委員用URLで始められました') + '（このスマホは見るだけ）</div>' +
+      (x.m.owned ? 'この試合はほかのスマホで記録中です' : 'この試合を記録しているスマホがありません') + '（このスマホは見るだけ）</div>' +
       '<div class="rrow small"><button class="rbtn link" data-live="takeover" data-kind="' + x.kind + '" data-id="' + esc(x.m.id) + '">' +
       'この試合の記録を、このスマホに引き継ぐ</button></div></div>';
   }
