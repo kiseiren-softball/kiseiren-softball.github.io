@@ -2141,18 +2141,20 @@ function registrationView() {
   var sum = function (k) { return R.reduce(function (a, r) { return a + n(r[k]); }, 0); };
   var cnt = function (f) { return R.filter(f).length; };
   var kpi = function (num, label) { return '<div class="kpi" style="cursor:default"><div class="n">' + num + '</div><div class="t">' + label + '</div></div>'; };
+  // キャプテン会議の出席・くじ順を誰も付けていないときは、欄ごと出さない（「0/12」と出て欠席に見えるため。11/13）
+  var capRec = R.some(function (r) { return r.capAttend || r.lot; });
   var h = '<h2 class="sec">参加登録（' + R.length + '社）</h2><div class="kpis">' +
     kpi(cnt(function (r) { return r.returned; }) + '/' + R.length, '登録用紙 回収') +
     kpi(sum('members'), '選手（人）') +
     kpi(sum('bento'), '弁当（食）') +
-    kpi(cnt(function (r) { return r.capAttend; }) + '/' + R.length, 'キャプテン会議 出席') + '</div>';
+    (capRec ? kpi(cnt(function (r) { return r.capAttend; }) + '/' + R.length, 'キャプテン会議 出席') : '') + '</div>';
   var mark = function (ok, yes, no) { return ok ? '<span class="st st-完了">' + yes + '</span>' : '<span class="st st-未着手">' + no + '</span>'; };
-  h += '<div class="card scroll-x" style="padding:6px 10px"><table class="grid"><thead><tr><th class="l">企業</th><th>登録用紙</th><th>人数</th><th>弁当</th><th>CAP会議</th><th>記号</th></tr></thead><tbody>' +
+  h += '<div class="card scroll-x" style="padding:6px 10px"><table class="grid"><thead><tr><th class="l">企業</th><th>登録用紙</th><th>人数</th><th>弁当</th>' + (capRec ? '<th>CAP会議</th>' : '') + '<th>記号</th></tr></thead><tbody>' +
     R.map(function (r) {
       return '<tr><td class="l">' + esc(r.company) + (r.note ? '<div class="muted">' + esc(r.note) + '</div>' : '') + '</td>' +
         '<td>' + mark(r.returned, '回収 ' + esc(/^\d{4}-\d\d-\d\d$/.test(r.returned) ? md(r.returned) : r.returned), r.sent ? '送付済' : '未送付') + '</td>' +
         '<td>' + esc(r.members) + '</td><td>' + esc(r.bento) + (r.allergy ? '<div class="muted">' + esc(r.allergy) + '</div>' : '') + '</td>' +
-        '<td>' + (r.capAttend ? '✓' : '') + (r.lot ? '<div class="muted">くじ' + esc(r.lot) + '</div>' : '') + '</td><td>' + esc(r.code) + '</td></tr>';
+        (capRec ? '<td>' + (r.capAttend ? '✓' : '') + (r.lot ? '<div class="muted">くじ' + esc(r.lot) + '</div>' : '') + '</td>' : '') + '<td>' + esc(r.code) + '</td></tr>';
     }).join('') + '</tbody></table></div>' +
     '<div class="muted">送付日・回収日・人数などは総合資料Excelの「参加企業」シートで入力（取り込みでここに出ます）。キャプテン会議の出席・くじ順・記号はスプシの「参加登録」シートで入力。連絡先・代表者名は載せていません。</div>';
   return h;
